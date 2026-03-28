@@ -39,6 +39,8 @@ function ProjectionsSection() {
       const result = await uploadCSV(file, 'upload');
       if (result.error) {
         setMsg(`❌ Error: ${result.error}`);
+      } else if (result.type === 'dk_salary') {
+        setMsg(`✅ DraftKings salary CSV: merged ${result.updated} players with existing projections, added ${result.inserted} new`);
       } else if (!result.inserted || result.inserted === 0) {
         setMsg('⚠️ Imported 0 players. Check that TOMORROW_DK or Proj column has values > 0.');
       } else {
@@ -52,26 +54,27 @@ function ProjectionsSection() {
   };
 
   const handleClear = async () => {
-    if (!confirm(`Clear all ${players.length} projections for today? This cannot be undone.`)) return;
+    if (!confirm(`Clear all projections for today? This cannot be undone.`)) return;
     setClearing(true);
     try {
       const date = new Date().toISOString().split('T')[0];
       const res = await fetch(`/api/admin/projections?date=${date}&clearAll=true`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
-      const result = await res.json();
-      if (result.error) {
-        setMsg(`❌ ${result.error}`);
+      const text = await res.text();
+      const result = text ? JSON.parse(text) : {};
+      if (!res.ok || result.error) {
+        setMsg(`❌ ${result.error || `Server error ${res.status}`}`);
       } else {
-        setMsg(`✅ Cleared ${result.deleted} projections`);
-        window.location.reload();
+        setMsg(`✅ Cleared ${result.deleted ?? 'all'} projections`);
+        setTimeout(() => window.location.reload(), 800);
       }
     } catch (err: any) {
       setMsg(`❌ Clear failed: ${err.message}`);
     }
     setClearing(false);
-    setTimeout(() => setMsg(''), 4000);
+    setTimeout(() => setMsg(''), 5000);
   };
 
   return (
@@ -83,11 +86,9 @@ function ProjectionsSection() {
             {saving ? '⏳ Uploading…' : '⬆ Upload CSV'}
           </button>
           <input ref={fileRef} type="file" accept=".csv" style={{ display:'none' }} onChange={handleUpload} />
-          {players.length > 0 && (
-            <button className="btn-danger" onClick={handleClear} disabled={clearing || saving}>
-              {clearing ? '⏳ Clearing…' : `🗑 Clear all (${players.length})`}
-            </button>
-          )}
+          <button className="btn-danger" onClick={handleClear} disabled={clearing || saving}>
+            {clearing ? '⏳ Clearing…' : players.length > 0 ? `🗑 Clear all (${players.length})` : '🗑 Clear today'}
+          </button>
         </div>
       </div>
 
@@ -98,11 +99,16 @@ function ProjectionsSection() {
       )}
 
       <div style={{ fontSize:11, color:'#475569', marginBottom:10, lineHeight:1.6 }}>
-        Supports theBatX (pitchers & hitters), DraftKings salary CSV, or any CSV with <code style={{ color:'#f59e0b' }}>Name/Team/TOMORROW_DK/Proj</code> columns. Upload pitchers and hitters separately.
+        <strong style={{ color:'#94a3b8' }}>Recommended workflow:</strong> (1) Upload DraftKings salary CSV first — sets salary + position for all players. (2) Upload theBatX pitchers CSV. (3) Upload theBatX hitters CSV. The files merge automatically by player name.
+      </div>
+
+      <div style={{ fontSize:11, color:'#475569', marginBottom:8 }}>
+        Showing projections for: <span style={{ color:'#94a3b8' }}>{new Date().toISOString().split('T')[0]}</span>
+        {' · '}{loading ? 'Loading…' : `${players.length} players loaded`}
       </div>
 
       {loading ? <LoadingSkeleton rows={8} cols={8} /> : players.length === 0 ? (
-        <EmptyState message="No projections loaded. Upload a CSV file above." />
+        <EmptyState message="No projections found for today. Upload a CSV above — make sure the date on your CSV matches today." />
       ) : (
         <div style={{ maxHeight:450, overflowY:'auto' }}>
           <table className="data-table">
