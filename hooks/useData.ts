@@ -212,6 +212,7 @@ export function useDFSOptimizer(players: any[]) {
     excluded = [] as number[],
     numLineups = 1,
     stackTeam = null as string | null,
+    stackSize = 3,
     mode = 'cash' as 'cash' | 'gpp',
     randomness = 0,
     minUnique = 2,
@@ -227,7 +228,7 @@ export function useDFSOptimizer(players: any[]) {
 
     while (lineups.length < numLineups && seed < numLineups * 20) {
       seed++;
-      const lu = buildLineup(pool, locked, SALARY_CAP, SALARY_MIN, seed, stackTeam, mode, randomness);
+      const lu = buildLineup(pool, locked, SALARY_CAP, SALARY_MIN, seed, stackTeam, stackSize, mode, randomness);
       if (!lu) continue;
 
       // Enforce min unique players vs previous lineup
@@ -273,6 +274,7 @@ function buildLineup(
   minSal: number,
   seed: number,
   stackTeam: string | null,
+  stackSize: number,
   mode: string,
   randomness: number,
 ): any | null {
@@ -282,9 +284,9 @@ function buildLineup(
   const scored = pool.map(p => {
     let score = p.proj_fpts || 0;
 
-    // Stack bonus — boost players from stack team
+    // Stack bonus — strongly prefer stack team batters (not pitchers)
     if (stackTeam && p.team === stackTeam && p.position !== 'SP') {
-      score *= 1.15;
+      score *= 1.4; // strong boost to ensure stacking
     }
 
     // GPP mode: slight ownership penalty to diversify
