@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
               team: row.team,
               position: row.position,
               salary: row.salary,
-              proj_fpts: row.avg_pts_per_game || 0,
+              proj_fpts: 0, // never use FPPG as projection — requires explicit theBatX upload
               proj_ownership: 0,
               source: 'dk_salary',
               slate_date: slateDate,
