@@ -46,6 +46,7 @@ function mapTheBatX(R: Record<string, string>, source: string, slateDate: string
   const name = R['NAME'] || R['PLAYER'] || R['PLAYER NAME'] || '';
   if (!name) return null;
   const dkNameId = R['NAME_ID'] || R['NAME + ID'] || '';
+  const opp = R['OPP'] || R['OPP_TM'] || '';
   const proj = parseFloat(R['TOMORROW_DK'] || R['PROJ'] || R['FPTS'] || R['DK PTS'] || '0') || 0;
   if (proj <= 0) return null;
   const own = parseFloat(R['12TEAM_OWN'] || R['15TEAM_OWN'] || R['OWN%'] || R['OWN'] || '0') || 0;
@@ -59,6 +60,7 @@ function mapTheBatX(R: Record<string, string>, source: string, slateDate: string
   return {
     player_name: name.trim(),
     dk_name_id: dkNameId || undefined,
+    opp: opp || undefined,
     team, position,
     proj_fpts: proj,
     proj_ownership: own,
