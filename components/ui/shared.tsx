@@ -1,6 +1,15 @@
 'use client';
 // components/ui/shared.tsx
 
+// Real MLB team IDs for logo CDN
+const TEAM_IDS: Record<string, number> = {
+  ARI:109, ATL:144, BAL:110, BOS:111, CHC:112, CWS:145, CIN:113,
+  CLE:114, COL:115, DET:116, HOU:117, KC:118, LAA:108, LAD:119,
+  MIA:146, MIL:158, MIN:142, NYM:121, NYY:147, OAK:133, PHI:143,
+  PIT:134, SD:135, SEA:136, SF:137, STL:138, TB:139, TEX:140,
+  TOR:141, WSH:120,
+};
+
 const TEAM_COLORS: Record<string, string> = {
   NYY:'#0d1b2a', BOS:'#bd3039', LAD:'#005a9c', ATL:'#ce1141',
   HOU:'#eb6e1f', TEX:'#003278', PHI:'#e81828', NYM:'#002d72',
@@ -13,7 +22,34 @@ const TEAM_COLORS: Record<string, string> = {
 };
 
 export function TeamLogo({ abbr, size = 28 }: { abbr: string; size?: number }) {
+  const teamId = TEAM_IDS[abbr];
   const bg = TEAM_COLORS[abbr] || '#1e293b';
+
+  if (teamId) {
+    return (
+      <div style={{
+        width: size, height: size, borderRadius: 4, flexShrink: 0,
+        background: `${bg}33`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        overflow: 'hidden',
+      }}>
+        <img
+          src={`https://www.mlbstatic.com/team-logos/${teamId}.svg`}
+          alt={abbr}
+          width={size - 4}
+          height={size - 4}
+          style={{ objectFit: 'contain' }}
+          onError={(e) => {
+            const parent = (e.target as HTMLImageElement).parentElement;
+            if (parent) {
+              parent.innerHTML = `<span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;color:#fff;font-size:${Math.round(size*0.33)}px">${abbr.slice(0,3)}</span>`;
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{
       width: size, height: size, borderRadius: 4, background: bg,
@@ -73,7 +109,7 @@ export function Pill({
 }: { children: React.ReactNode; color?: 'green' | 'red' | 'blue' | 'yellow' | 'gray' }) {
   const styles = {
     green:  { bg: 'rgba(34,197,94,0.15)',  text: '#22c55e' },
-    red:    { bg: 'rgba(239,68,68,0.15)',   text: '#ef4444' },
+    red:    { bg: 'rgba(196,30,58,0.15)',   text: '#f06070' },
     blue:   { bg: 'rgba(59,130,246,0.15)', text: '#60a5fa' },
     yellow: { bg: 'rgba(251,191,36,0.15)', text: '#f59e0b' },
     gray:   { bg: 'rgba(255,255,255,0.06)',text: '#94a3b8' },
