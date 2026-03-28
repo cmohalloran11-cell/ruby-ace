@@ -26,6 +26,7 @@ export default function HomePage() {
   const [showAuth, setShowAuth] = useState(false);
   const [authTab, setAuthTab] = useState<'login'|'register'>('login');
   const [showSettings, setShowSettings] = useState(false);
+  const switchTab = (id: string) => { setTab(id); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
   const openLogin = () => { setAuthTab('login'); setShowAuth(true); };
   const openRegister = () => { setAuthTab('register'); setShowAuth(true); };
