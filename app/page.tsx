@@ -10,23 +10,15 @@ import AdminPanel from '@/components/AdminPanel';
 import AuthModal from '@/components/AuthModal';
 import UserSettings from '@/components/UserSettings';
 import ESPNLeague from '@/components/ESPNLeague';
+import TeamFeed from '@/components/TeamFeed';
 
 const MAIN_TABS = [
-  { id: 'fantasy', icon: '⚡', label: 'Fantasy Helper' },
+  { id: 'fantasy', icon: '⚡', label: 'Fantasy' },
   { id: 'dfs',     icon: '🏆', label: 'DFS Optimizer' },
-  { id: 'pickem',  icon: '🎯', label: "Pick'em Tool" },
+  { id: 'pickem',  icon: '🎯', label: "Pick'em" },
   { id: 'league',  icon: '🏟', label: 'My League' },
+  { id: 'feed',    icon: '📡', label: 'Team Feed' },
 ];
-
-// Ruby Ace brand colors
-const R = {
-  accent: '#c41e3a',
-  accentHover: '#e02247',
-  accentDim: '#9b1c35',
-  accentBg: '#2d0810',
-  accentBorder: 'rgba(196,30,58,0.4)',
-  accentText: '#f06070',
-};
 
 export default function HomePage() {
   const { user, isAdmin, logout, loading } = useAuth();
@@ -52,7 +44,7 @@ export default function HomePage() {
       {/* Header */}
       <div style={{
         background:'#0e0e0e',
-        borderBottom:`1px solid rgba(196,30,58,0.15)`,
+        borderBottom:'1px solid rgba(196,30,58,0.15)',
         padding:'0 20px',
         position:'sticky', top:0, zIndex:50,
       }}>
@@ -62,30 +54,28 @@ export default function HomePage() {
             {/* Logo */}
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
               <div style={{
-                width: 36, height: 36,
-                background: `linear-gradient(135deg, ${R.accentBg}, ${R.accentDim})`,
-                border: `1px solid ${R.accentBorder}`,
-                borderRadius: 8,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 18,
+                width:36, height:36,
+                background:'linear-gradient(135deg,#2d0810,#9b1c35)',
+                border:'1px solid rgba(196,30,58,0.4)',
+                borderRadius:8,
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:18,
               }}>♦</div>
               <div>
                 <div style={{
-                  fontFamily: "'Barlow Condensed', sans-serif",
-                  fontSize: 22, fontWeight: 700, lineHeight: 1,
-                  letterSpacing: '-0.5px',
+                  fontFamily:"'Barlow Condensed',sans-serif",
+                  fontSize:22, fontWeight:700, lineHeight:1, letterSpacing:'-0.5px',
                 }}>
-                  Ruby <span style={{ color: R.accent }}>Ace</span>
+                  Ruby <span style={{ color:'#c41e3a' }}>Ace</span>
                 </div>
-                <div style={{ fontSize: 10, color: '#475569', letterSpacing: '.1em', textTransform: 'uppercase' }}>
+                <div style={{ fontSize:10, color:'#475569', letterSpacing:'.1em', textTransform:'uppercase' }}>
                   MLB Analytics
                 </div>
               </div>
             </div>
 
-            {/* Right side */}
+            {/* Right */}
             <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-              {/* Live badge */}
               <div style={{
                 display:'inline-flex', alignItems:'center', gap:5,
                 background:'rgba(34,197,94,0.08)', color:'#22c55e',
@@ -110,21 +100,18 @@ export default function HomePage() {
                     cursor:'pointer', color:'#94a3b8', fontSize:13,
                     fontFamily:"'Barlow',sans-serif",
                     display:'flex', alignItems:'center', gap:6,
-                    transition:'all .15s',
                   }}>
                     ⚙ {user.username}
                     {user.role === 'admin' && (
                       <span style={{
                         padding:'1px 7px', borderRadius:20, fontSize:10,
-                        background:`rgba(196,30,58,0.2)`, color:R.accentText,
+                        background:'rgba(196,30,58,0.2)', color:'#f06070',
                         fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
-                        border:`1px solid ${R.accentBorder}`,
+                        border:'1px solid rgba(196,30,58,0.4)',
                       }}>ADMIN</span>
                     )}
                   </button>
-                  <button className="btn-outline" style={{ fontSize:12 }} onClick={logout}>
-                    Sign Out
-                  </button>
+                  <button className="btn-outline" style={{ fontSize:12 }} onClick={logout}>Sign Out</button>
                 </div>
               ) : (
                 <div style={{ display:'flex', gap:8 }}>
@@ -135,7 +122,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Tab bar */}
+          {/* Tabs */}
           <div style={{ display:'flex', gap:6, padding:'11px 0 0', flexWrap:'wrap' }}>
             {MAIN_TABS.map(t => (
               <button key={t.id}
@@ -160,18 +147,12 @@ export default function HomePage() {
       <div style={{ maxWidth:1400, margin:'0 auto', padding:'20px 20px 60px' }}>
         {tab !== 'admin' && <DailySlate />}
 
-        {tab === 'fantasy' && (
-          <><div className="section-label">Fantasy Baseball Helper</div><FantasyHelper /></>
-        )}
-        {tab === 'dfs' && (
-          <><div className="section-label">DraftKings DFS Optimizer</div><DFSOptimizer /></>
-        )}
-        {tab === 'pickem' && (
-          <><div className="section-label">Underdog Pick'em Predictor</div><PickemPredictor /></>
-        )}
-        {tab === 'league' && (
-          <><div className="section-label">My ESPN Fantasy League</div><ESPNLeague /></>
-        )}
+        {tab === 'fantasy' && <><div className="section-label">Fantasy Baseball Helper</div><FantasyHelper /></>}
+        {tab === 'dfs'     && <><div className="section-label">DraftKings DFS Optimizer</div><DFSOptimizer /></>}
+        {tab === 'pickem'  && <><div className="section-label">Underdog Pick'em Predictor</div><PickemPredictor /></>}
+        {tab === 'league'  && <><div className="section-label">My ESPN Fantasy League</div><ESPNLeague /></>}
+        {tab === 'feed'    && <><div className="section-label">Team Feed — Injuries · Lineups · Rotations</div><TeamFeed /></>}
+
         {tab === 'admin' && (
           isAdmin ? <AdminPanel /> : (
             <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:300 }}>
@@ -191,7 +172,7 @@ export default function HomePage() {
       </div>
 
       {/* Footer */}
-      <div style={{ borderTop:`1px solid rgba(196,30,58,0.1)`, padding:'14px 20px' }}>
+      <div style={{ borderTop:'1px solid rgba(196,30,58,0.1)', padding:'14px 20px' }}>
         <div style={{ maxWidth:1400, margin:'0 auto', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
           <div style={{ color:'#2a2a2a', fontSize:12 }}>
             Ruby Ace · MLB Stats API · Open-Meteo · The Odds API · For entertainment purposes only
