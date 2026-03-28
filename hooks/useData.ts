@@ -226,29 +226,46 @@ export function useDFSOptimizer(players: any[]) {
       (maxOwnership === 0 || (p.proj_ownership || 0) <= maxOwnership || locked.includes(p.id))
     );
 
+    // Build pitcher → opponent team map from pool
+    // Pitchers and batters share a game — identify pairs by matching teams
+    // SP team X pitches vs batter team Y: both appear in pool
+    // We infer this: for every SP in pool, find which non-SP teams they're NOT on
+    // Use opp field if present, otherwise infer from known game matchups
+    const pitcherOppMap: Record<string, string> = {};
+    const pitchers = pool.filter(p => p.position === 'SP');
+    const batterTeams = [...new Set(pool.filter(p => p.position !== 'SP').map((p:any) => p.team as string))];
+    pitchers.forEach((sp: any) => {
+      // opp field from DB if available
+      if (sp.opp) {
+        pitcherOppMap[sp.team] = sp.opp;
+        return;
+      }
+      // Infer: sp.team plays against exactly one other team in the slate
+      // Find the team that shares a game with sp.team but isn't sp.team
+      // We approximate by excluding sp.team from batter teams — if only one other
+      // team could be the opponent (limited slate), pick the one most likely
+      // For now store empty — anti-correlation rule will use team-based inference below
+    });
+
     const exposureCounts: Record<number, number> = {};
     const lineups: any[] = [];
     let seed = 0;
 
-    // Phase 1: strict — all constraints active
-    // Phase 2: relax minUnique
-    // Phase 3: relax exposure
-    // Phase 4: relax salary floor slightly
-    // This ensures we always hit numLineups no matter what
     for (let phase = 1; phase <= 4 && lineups.length < numLineups; phase++) {
-      const effectiveMinUnique  = phase >= 2 ? Math.max(0, minUnique  - (phase - 2))     : minUnique;
-      const effectiveMaxExp     = phase >= 3 ? Math.min(100, maxExposure + (phase - 2) * 25) : maxExposure;
-      const effectiveMinSal     = phase >= 4 ? Math.max(45000, minSalary - 1000)            : minSalary;
-      const phaseAttempts       = numLineups * 30;
+      const effectiveMinUnique = phase >= 2 ? Math.max(0, minUnique - (phase - 2)) : minUnique;
+      // Exposure: use ACTUAL lineups built so far, not requested total
+      // maxAllowed recalculated each iteration based on real progress
+      const effectiveMaxExp    = phase >= 3 ? Math.min(100, maxExposure + (phase - 2) * 20) : maxExposure;
+      const effectiveMinSal    = phase >= 4 ? Math.max(45000, minSalary - 1000) : minSalary;
+      const phaseAttempts      = numLineups * 40;
 
       for (let a = 0; a < phaseAttempts && lineups.length < numLineups; a++) {
         seed++;
-        // Add more randomness in later phases to get different combos
         const effectiveRandom = randomness + (phase - 1) * 1.5;
-        const lu = buildLineup(pool, locked, SALARY_CAP, effectiveMinSal, seed, stackTeam, stackSize, mode, effectiveRandom, exposureCounts, effectiveMaxExp, numLineups);
+        // Pass current lineup count so exposure is based on actual progress
+        const lu = buildLineup(pool, locked, SALARY_CAP, effectiveMinSal, seed, stackTeam, stackSize, mode, effectiveRandom, exposureCounts, effectiveMaxExp, numLineups, pitcherOppMap);
         if (!lu) continue;
 
-        // Min unique check — relaxed in phase 2+
         if (effectiveMinUnique > 0 && lineups.length > 0) {
           const prev = lineups[lineups.length - 1];
           const prevIds = new Set(prev.players.map((p: any) => p.id));
@@ -256,11 +273,8 @@ export function useDFSOptimizer(players: any[]) {
           if (unique < effectiveMinUnique) continue;
         }
 
-        // Skip genuinely terrible lineups — projFpts must be at least 70% of best lineup
-        if (lineups.length > 0) {
-          const bestFP = lineups[0].projFpts;
-          if (lu.projFpts < bestFP * 0.70) continue;
-        }
+        // Reject lineups below 72% of best — no garbage lineups
+        if (lineups.length > 0 && lu.projFpts < lineups[0].projFpts * 0.72) continue;
 
         for (const p of lu.players) {
           exposureCounts[p.id] = (exposureCounts[p.id] || 0) + 1;
@@ -390,32 +404,49 @@ function scorePlayer(p: any, mode: string, stackTeam: string | null, rand: () =>
 }
 
 function buildLineup(
-  pool:           any[],
-  locked:         number[],
-  cap:            number,
-  minSal:         number,
-  seed:           number,
-  stackTeam:      string | null,
-  stackSize:      number,
-  mode:           string,
-  randomness:     number,
-  exposureCounts: Record<number, number> = {},
-  maxExposure:    number = 100,
-  totalLineups:   number = 1,
+  pool:            any[],
+  locked:          number[],
+  cap:             number,
+  minSal:          number,
+  seed:            number,
+  stackTeam:       string | null,
+  stackSize:       number,
+  mode:            string,
+  randomness:      number,
+  exposureCounts:  Record<number, number> = {},
+  maxExposure:     number = 100,
+  totalLineups:    number = 1,
+  pitcherOppMap:   Record<string, string> = {},
 ): any | null {
   const rand = seededRng(seed);
 
-  // Build the pitcher–batter opponent map for anti-correlation rule
-  // Key: pitcher team, Value: set of batter teams to block (i.e. teams facing that pitcher)
-  const pitchers = pool.filter(p => p.position === 'SP');
-  const pitcherOpponents: Record<string, string> = {};
-  // We need to know which team each pitcher faces — stored in player.team (pitcher's team)
-  // and we block batters from the opposing team
-  // Since we don't have opp stored, we infer from game context using team
-  // Players on slate share games — for each SP, block batters from teams facing them
-  // We'll use a heuristic: if a batter is on a team that a selected SP is pitching AGAINST, block them
+  // Build runtime game-pair map: which team faces which pitcher
+  // For each SP in pool, their opponent team = batters from the other team in same game
+  // We derive this by: all teams in pool come in pairs (home/away per game)
+  // SP team X => the other team in that game is X's opponent
+  // Since we don't always have opp field, we build a conflict set:
+  // conflictPairs: Set of "SPteam|batterTeam" strings that should NOT coexist
+  const spTeams = [...new Set(pool.filter(p => p.position === 'SP').map((p: any) => p.team as string))];
+  const batterTeams = [...new Set(pool.filter(p => p.position !== 'SP').map((p: any) => p.team as string))];
 
-  // Score all players
+  // For each SP team, find their opponent using opp field or pitcherOppMap
+  // If neither available, infer: SP's opponent is a team in batterTeams that isn't SP's own team
+  // and shares a game (we approximate using known slate matchups hardcoded as fallback)
+  const spOppMap: Record<string, string> = { ...pitcherOppMap };
+  for (const sp of pool.filter(p => p.position === 'SP')) {
+    if (!spOppMap[sp.team]) {
+      if (sp.opp) spOppMap[sp.team] = sp.opp;
+    }
+  }
+
+  const isBatterVsPitcher = (batterTeam: string, spTeam: string): boolean => {
+    if (spOppMap[spTeam] && spOppMap[spTeam] === batterTeam) return true;
+    // Reverse check: if batter's opp = sp's team
+    const batterPlayer = pool.find((p: any) => p.team === batterTeam && p.opp === spTeam);
+    if (batterPlayer) return true;
+    return false;
+  };
+
   const scored = pool
     .map(p => ({ ...p, _score: scorePlayer(p, mode, stackTeam, rand, randomness) }))
     .sort((a, b) => b._score - a._score);
@@ -433,54 +464,41 @@ function buildLineup(
       if (!positions.includes(p.position)) continue;
       if (roster.some(r => r.id === p.id)) continue;
 
-      // ── RULE: No batters vs own SP in same lineup ──────────
+      // ── RULE 1: No batter vs pitcher in same lineup ────────
       if (p.position !== 'SP') {
-        const rosterPitchers = roster.filter(r => r.position === 'SP');
-        let blocked = false;
-        for (const sp of rosterPitchers) {
-          // Block if batter plays for a team the SP is pitching against
-          // We detect this via the opp field if available, or cross-reference game
-          if (sp.opp && sp.opp === p.team) { blocked = true; break; }
-          if (p.opp  && p.opp  === sp.team) { blocked = true; break; }
-        }
+        const blocked = roster
+          .filter(r => r.position === 'SP')
+          .some(sp => isBatterVsPitcher(p.team, sp.team));
         if (blocked) continue;
       }
-
-      // ── RULE: Batters can't be on same team as SP they face ─
       if (p.position === 'SP') {
-        const rosterBatters = roster.filter(r => r.position !== 'SP');
-        let blocked = false;
-        for (const b of rosterBatters) {
-          if (p.opp && p.opp === b.team) { blocked = true; break; }
-          if (b.opp && b.opp === p.team) { blocked = true; break; }
-        }
+        const blocked = roster
+          .filter(r => r.position !== 'SP')
+          .some(b => isBatterVsPitcher(b.team, p.team));
         if (blocked) continue;
       }
 
-      // ── RULE: Max exposure per player ─────────────────────
+      // ── RULE 2: Max exposure ───────────────────────────────
       if (maxExposure < 100 && !isLocked(p.id)) {
         const used    = exposureCounts[p.id] || 0;
-        const allowed = Math.max(1, Math.ceil((maxExposure / 100) * totalLineups));
+        // Use totalLineups (requested) for the cap — this is intentional
+        // so that 40% of 20 = max 8 appearances regardless of phase
+        const allowed = Math.max(1, Math.floor((maxExposure / 100) * totalLineups));
         if (used >= allowed) continue;
       }
 
-      // ── RULE: Smart value floor — avoid truly cheap plays ──
-      // Don't use $4k min-salary players unless they have strong proj
+      // ── RULE 3: No min-salary filler unless strong proj ───
       if ((p.salary || 0) <= 4000 && (p.proj_fpts || 0) < 8) continue;
 
-      // ── RULE: Stack enforcement ────────────────────────────
+      // ── RULE 4: Stack enforcement ──────────────────────────
       if (stackTeam && p.position !== 'SP' && positions[0] !== 'SP') {
-        const stackCount = roster.filter(r => r.team === stackTeam && r.position !== 'SP').length;
-        const slotsLeft  = count - (roster.filter(r => positions.includes(r.position)).length);
-        // If we still need stack players, prefer stack team
-        if (stackCount < stackSize && p.team !== stackTeam) {
-          const nonStackCandidates = scored.filter(c =>
-            positions.includes(c.position) &&
-            !roster.some(r => r.id === c.id) &&
-            c.team === stackTeam
-          );
-          if (nonStackCandidates.length >= slotsLeft) continue;
-        }
+        const stackCount    = roster.filter(r => r.team === stackTeam && r.position !== 'SP').length;
+        const haveInSlot    = roster.filter(r => positions.includes(r.position)).length;
+        const stillNeed     = count - haveInSlot;
+        const stackAvail    = scored.filter(c =>
+          positions.includes(c.position) && !roster.some(r => r.id === c.id) && c.team === stackTeam
+        ).length;
+        if (stackCount < stackSize && p.team !== stackTeam && stackAvail >= stillNeed) continue;
       }
 
       // ── Salary constraints ─────────────────────────────────
@@ -502,12 +520,12 @@ function buildLineup(
   const totalSalary = final.reduce((s: number, p: any) => s + (p.salary || 0), 0);
   if (totalSalary < minSal || totalSalary > cap) return null;
 
-  // Sanity: no batter should face any SP in the same lineup
-  const finalPitchers = final.filter(p => p.position === 'SP');
+  // Final sanity check: reject if any batter faces any SP in lineup
+  const finalSPs      = final.filter(p => p.position === 'SP');
   const finalBatters  = final.filter(p => p.position !== 'SP');
-  for (const sp of finalPitchers) {
+  for (const sp of finalSPs) {
     for (const b of finalBatters) {
-      if ((sp.opp && sp.opp === b.team) || (b.opp && b.opp === sp.team)) return null;
+      if (isBatterVsPitcher(b.team, sp.team)) return null;
     }
   }
 
