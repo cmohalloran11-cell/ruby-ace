@@ -128,14 +128,14 @@ export default function HomePage() {
             {MAIN_TABS.map(t => (
               <button key={t.id}
                 className={`tab-btn${tab===t.id?' active':''}`}
-                onClick={() => setTab(t.id)}>
+                onClick={() => switchTab(t.id)}>
                 {t.icon} {t.label}
               </button>
             ))}
             {isAdmin && (
               <button
                 className={`tab-btn${tab==='admin'?' active':''}`}
-                onClick={() => setTab('admin')}
+                onClick={() => switchTab('admin')}
                 style={{ marginLeft:'auto' }}>
                 🔐 Admin
               </button>
