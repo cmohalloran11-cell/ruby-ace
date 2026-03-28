@@ -205,6 +205,7 @@ export function useAdminUsers() {
 // ── DFS Optimizer (client-side) ───────────────────────────────
 export function useDFSOptimizer(players: any[]) {
   const SALARY_CAP = 50000;
+  const SALARY_MIN = 49000;
 
   const optimize = useCallback(({
     locked = [] as number[],
@@ -212,25 +213,24 @@ export function useDFSOptimizer(players: any[]) {
     numLineups = 1,
     stackTeam = null as string | null,
     mode = 'cash' as 'cash' | 'gpp',
-    maxOwnership = 0,
-    minUnique = 2,
     randomness = 0,
+    minUnique = 2,
   }) => {
-    const eligible = players.filter(p =>
+    // Only include players with proj points > 0
+    const pool = players.filter(p =>
       !excluded.includes(p.id) &&
-      (p.proj_fpts || 0) > 0 &&
-      (maxOwnership === 0 || (p.proj_ownership || 0) <= maxOwnership || locked.includes(p.id))
+      (p.proj_fpts || 0) > 0
     );
 
     const lineups: any[] = [];
-    let attempts = 0;
+    let seed = 1;
 
-    while (lineups.length < numLineups && attempts < numLineups * 10) {
-      attempts++;
-      const lu = buildLineup(eligible, locked, SALARY_CAP, attempts, stackTeam, mode, randomness);
+    while (lineups.length < numLineups && seed < numLineups * 20) {
+      seed++;
+      const lu = buildLineup(pool, locked, SALARY_CAP, SALARY_MIN, seed, stackTeam, mode, randomness);
       if (!lu) continue;
 
-      // Enforce minimum unique players between consecutive lineups
+      // Enforce min unique players vs previous lineup
       if (minUnique > 0 && lineups.length > 0) {
         const prev = lineups[lineups.length - 1];
         const prevIds = new Set(prev.players.map((p: any) => p.id));
@@ -244,102 +244,94 @@ export function useDFSOptimizer(players: any[]) {
     return lineups;
   }, [players]);
 
-  return { optimize, SALARY_CAP };
+  return { optimize, SALARY_CAP, SALARY_MIN };
 }
+
+// DK MLB classic: 2 SP, 1 C, 1 1B, 1 2B, 1 3B, 1 SS, 3 OF = 10 players
+const DK_SLOTS = [
+  { positions: ['SP'], need: 2 },
+  { positions: ['C', 'C/1B'], need: 1 },
+  { positions: ['1B', 'C/1B'], need: 1 },
+  { positions: ['2B'], need: 1 },
+  { positions: ['3B'], need: 1 },
+  { positions: ['SS'], need: 1 },
+  { positions: ['OF'], need: 3 },
+];
 
 function seededRng(seed: number) {
-  let s = (seed + 1) * 1664525 + 1013904223;
+  let s = seed * 1664525 + 1013904223;
   return () => {
-    s = (s * 1664525 + 1013904223) & 0xffffffff;
-    return Math.abs(s) / 2147483648;
+    s = (s * 1664525 + 1013904223) & 0x7fffffff;
+    return s / 0x7fffffff;
   };
-}
-
-function scorePlayer(p: any, mode: 'cash' | 'gpp', stackTeam: string | null, rand: () => number, randomness: number): number {
-  const proj = p.proj_fpts || 0;
-  const salary = p.salary || 1;
-  const own = p.proj_ownership || 0;
-
-  // Base value: projected points per $1000 salary
-  let score = (proj / salary) * 1000;
-
-  if (mode === 'gpp') {
-    // GPP: reward high proj + low ownership (leverage)
-    // Ownership penalty — lower owned players get a boost
-    const ownPenalty = own > 0 ? (own / 100) * 0.4 : 0;
-    score = score * (1 - ownPenalty) + proj * 0.15;
-  } else {
-    // Cash: pure floor — maximize projected points relative to salary
-    // Slightly penalize very high ownership (avoid contrarian risk in cash)
-    score = proj * 0.6 + score * 0.4;
-  }
-
-  // Stack team bonus
-  if (stackTeam && p.team === stackTeam && p.position !== 'SP') {
-    score *= 1.25;
-  }
-
-  // Randomness (0 = deterministic, 10 = very random)
-  if (randomness > 0) {
-    const noise = (rand() - 0.5) * (randomness / 10) * score * 0.5;
-    score += noise;
-  }
-
-  return score;
 }
 
 function buildLineup(
-  players: any[],
+  pool: any[],
   locked: number[],
   cap: number,
+  minSal: number,
   seed: number,
   stackTeam: string | null,
-  mode: 'cash' | 'gpp',
+  mode: string,
   randomness: number,
-) {
+): any | null {
   const rand = seededRng(seed);
-  const roster: any[] = [...players.filter(p => locked.includes(p.id))];
-  let salaryUsed = roster.reduce((s: number, p: any) => s + (p.salary || 0), 0);
 
-  // Score and sort all available players
-  const available = [...players]
-    .filter(p => !locked.includes(p.id))
-    .map(p => ({ ...p, _score: scorePlayer(p, mode, stackTeam, rand, randomness) }))
-    .sort((a, b) => b._score - a._score);
+  // Score each player — pure points maximization with optional noise
+  const scored = pool.map(p => {
+    let score = p.proj_fpts || 0;
 
-  const POSITIONS = [
-    { slots: ['SP'], count: 2 },
-    { slots: ['C'], count: 1 },
-    { slots: ['1B'], count: 1 },
-    { slots: ['2B'], count: 1 },
-    { slots: ['3B'], count: 1 },
-    { slots: ['SS'], count: 1 },
-    { slots: ['OF'], count: 3 },
-  ];
+    // Stack bonus — boost players from stack team
+    if (stackTeam && p.team === stackTeam && p.position !== 'SP') {
+      score *= 1.15;
+    }
 
+    // GPP mode: slight ownership penalty to diversify
+    if (mode === 'gpp' && p.proj_ownership > 0) {
+      score *= (1 - (p.proj_ownership / 100) * 0.15);
+    }
+
+    // Randomness: small noise to create lineup variety
+    if (randomness > 0) {
+      const noise = (rand() - 0.5) * (randomness / 10) * score * 0.3;
+      score += noise;
+    }
+
+    return { ...p, _score: score };
+  }).sort((a, b) => b._score - a._score);
+
+  const isLocked = (id: number) => locked.includes(id);
+  const roster: any[] = scored.filter(p => isLocked(p.id));
+  let salUsed = roster.reduce((s: number, p: any) => s + (p.salary || 0), 0);
+
+  // Helper: fill a position slot with best available player
   const fill = (positions: string[], count: number) => {
-    const current = roster.filter(p => positions.includes(p.position)).length;
-    let needed = count - current;
-
-    for (const p of available) {
-      if (needed <= 0) break;
+    const have = roster.filter(p => positions.includes(p.position)).length;
+    let need = count - have;
+    for (const p of scored) {
+      if (need <= 0) break;
       if (!positions.includes(p.position)) continue;
       if (roster.some(r => r.id === p.id)) continue;
 
-      const slotsRemaining = 10 - roster.length;
-      // Ensure we leave enough salary room for remaining slots (min $3000/player)
-      const minSalaryNeeded = (slotsRemaining - 1) * 3000;
-      // Ensure we don't overspend
-      if (salaryUsed + (p.salary || 0) > cap - minSalaryNeeded) continue;
+      const slotsLeft = 10 - roster.length;
+      // Must leave enough salary for remaining slots (min $3000 each)
+      const salNeededAfter = (slotsLeft - 1) * 3000;
+      const pSal = p.salary || 0;
+
+      if (salUsed + pSal > cap - salNeededAfter) continue;
+      // Don\'t go so cheap we can\'t reach minSal
+      // (heuristic: don\'t leave too much on the table early)
 
       roster.push(p);
-      salaryUsed += (p.salary || 0);
-      needed--;
+      salUsed += pSal;
+      need--;
     }
   };
 
-  for (const pos of POSITIONS) {
-    fill(pos.slots, pos.count);
+  // Fill in DK slot order
+  for (const slot of DK_SLOTS) {
+    fill(slot.positions, slot.need);
   }
 
   if (roster.length < 10) return null;
@@ -347,13 +339,14 @@ function buildLineup(
   const final = roster.slice(0, 10);
   const totalSalary = final.reduce((s: number, p: any) => s + (p.salary || 0), 0);
 
-  // Reject lineups that are too far under the cap (poor salary utilization)
-  if (totalSalary < cap * 0.92) return null;
+  // Reject if under salary minimum or over cap
+  if (totalSalary < minSal || totalSalary > cap) return null;
 
   return {
     players: final,
     totalSalary,
     projFpts: parseFloat(final.reduce((s: number, p: any) => s + (p.proj_fpts || 0), 0).toFixed(1)),
-    avgOwnership: parseFloat((final.reduce((s: number, p: any) => s + (p.proj_ownership || 0), 0) / final.length).toFixed(1)),
   };
 }
+
+
