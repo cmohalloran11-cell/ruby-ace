@@ -32,10 +32,20 @@ function ProjectionsSection() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setMsg('Uploading…');
-    const result = await uploadCSV(file, 'upload');
-    setMsg(`✅ Imported ${result.inserted} players from ${file.name}`);
-    setTimeout(() => setMsg(''), 4000);
+    setMsg('⏳ Uploading…');
+    try {
+      const result = await uploadCSV(file, 'upload');
+      if (result.error) {
+        setMsg(`❌ Error: ${result.error}`);
+      } else if (!result.inserted || result.inserted === 0) {
+        setMsg('⚠️ Imported 0 players. Check that TOMORROW_DK or Proj column has values > 0.');
+      } else {
+        setMsg(`✅ Imported ${result.inserted} players from ${file.name}`);
+      }
+    } catch (err: any) {
+      setMsg(`❌ Upload failed: ${err.message}`);
+    }
+    setTimeout(() => setMsg(''), 6000);
     if (e.target) e.target.value = '';
   };
 
@@ -58,7 +68,7 @@ function ProjectionsSection() {
       )}
 
       <div style={{ fontSize:11, color:'#475569', marginBottom:10, lineHeight:1.6 }}>
-        CSV columns: <code style={{ color:'#f59e0b' }}>Name, Team, Pos, DK Salary, Proj, Own%, HR, RBI, R, SB, K, IP, ER, BB</code>
+        Supports theBatX (pitchers & hitters), DraftKings salary CSV, or any CSV with <code style={{ color:'#f59e0b' }}>Name/Team/TOMORROW_DK/Proj</code> columns. Upload pitchers and hitters separately.
       </div>
 
       {loading ? <LoadingSkeleton rows={8} cols={8} /> : players.length === 0 ? (
