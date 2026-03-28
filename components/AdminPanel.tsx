@@ -15,10 +15,12 @@ const SIDEBAR = [
 /* ── Projections ──────────────────────────────────────────── */
 function ProjectionsSection() {
   const { players, loading, saving, update, remove, uploadCSV } = useAdminProjections();
+  const { token } = useAuth();
   const [editId, setEditId]     = useState<number|null>(null);
   const [editVal, setEditVal]   = useState('');
   const [editField, setEditField] = useState('');
   const [msg, setMsg]           = useState('');
+  const [clearing, setClearing] = useState(false);
   const fileRef                 = useRef<HTMLInputElement>(null);
 
   const startEdit = (id:number, field:string, val:any) => {
@@ -49,15 +51,43 @@ function ProjectionsSection() {
     if (e.target) e.target.value = '';
   };
 
+  const handleClear = async () => {
+    if (!confirm(`Clear all ${players.length} projections for today? This cannot be undone.`)) return;
+    setClearing(true);
+    try {
+      const date = new Date().toISOString().split('T')[0];
+      const res = await fetch(`/api/admin/projections?date=${date}&clearAll=true`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (result.error) {
+        setMsg(`❌ ${result.error}`);
+      } else {
+        setMsg(`✅ Cleared ${result.deleted} projections`);
+        window.location.reload();
+      }
+    } catch (err: any) {
+      setMsg(`❌ Clear failed: ${err.message}`);
+    }
+    setClearing(false);
+    setTimeout(() => setMsg(''), 4000);
+  };
+
   return (
     <div className="card" style={{ padding:16 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
         <div className="section-label" style={{ marginBottom:0 }}>Projections Management</div>
         <div style={{ display:'flex', gap:8 }}>
-          <button className="btn-outline" onClick={() => fileRef.current?.click()} disabled={saving}>
+          <button className="btn-outline" onClick={() => fileRef.current?.click()} disabled={saving || clearing}>
             {saving ? '⏳ Uploading…' : '⬆ Upload CSV'}
           </button>
           <input ref={fileRef} type="file" accept=".csv" style={{ display:'none' }} onChange={handleUpload} />
+          {players.length > 0 && (
+            <button className="btn-danger" onClick={handleClear} disabled={clearing || saving}>
+              {clearing ? '⏳ Clearing…' : `🗑 Clear all (${players.length})`}
+            </button>
+          )}
         </div>
       </div>
 
