@@ -1,144 +1,169 @@
 'use client';
 // components/DailySlate.tsx
 import { useSchedule } from '@/hooks/useData';
-import { TeamLogo, LiveDot, LoadingSkeleton } from './ui/shared';
+import { TeamLogo, LiveDot } from './ui/shared';
 
-function WeatherBadge({ weather }: { weather: any }) {
-  if (!weather) return null;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '3px 9px', borderRadius: 20,
-      background: `${weather.impactColor}22`,
-      color: weather.impactColor,
-      fontSize: 11, fontWeight: 700,
-      fontFamily: "'Barlow Condensed',sans-serif",
-      whiteSpace: 'nowrap',
-    }}>
-      {weather.impactLabel}
-    </span>
-  );
-}
-
-function ScoreDisplay({ game }: { game: any }) {
+function GameCard({ game }: { game: any }) {
   const isLive = game.status === 'Live';
   const isFinal = game.status === 'Final';
-
-  if (!isLive && !isFinal) {
-    return (
-      <div style={{ fontSize: 12, color: '#64748b', textAlign: 'center' }}>
-        {new Date(game.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-      </div>
-    );
-  }
+  const gameTime = new Date(game.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
   return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: 20, fontWeight: 700, lineHeight: 1 }}>
-        <span style={{ color: game.away.score > game.home.score ? '#e2e8f0' : '#64748b' }}>
-          {game.away.score ?? 0}
+    <div style={{
+      flexShrink: 0,
+      width: 190,
+      background: '#141414',
+      border: `1px solid ${isLive ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.06)'}`,
+      borderRadius: 8,
+      padding: '10px 12px',
+      cursor: 'default',
+      transition: 'border-color .15s',
+    }}>
+      {/* Teams row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        {/* Away */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <TeamLogo abbr={game.away.abbr} size={26} />
+          <span style={{
+            fontFamily: "'Barlow Condensed',sans-serif",
+            fontSize: 13, fontWeight: 700,
+            color: (isLive || isFinal) && game.away.score > game.home.score ? '#e2e8f0' : '#94a3b8',
+          }}>{game.away.abbr}</span>
+        </div>
+
+        {/* Score / Time */}
+        <div style={{ textAlign: 'center', minWidth: 44 }}>
+          {isLive || isFinal ? (
+            <>
+              <div style={{
+                fontFamily: "'Barlow Condensed',sans-serif",
+                fontSize: 17, fontWeight: 700, lineHeight: 1,
+              }}>
+                <span style={{ color: game.away.score > game.home.score ? '#e2e8f0' : '#64748b' }}>
+                  {game.away.score ?? 0}
+                </span>
+                <span style={{ color: '#334155', margin: '0 4px' }}>-</span>
+                <span style={{ color: game.home.score > game.away.score ? '#e2e8f0' : '#64748b' }}>
+                  {game.home.score ?? 0}
+                </span>
+              </div>
+              {isLive && game.linescore && (
+                <div style={{ fontSize: 9, color: '#22c55e', marginTop: 2, fontFamily: "'Barlow Condensed',sans-serif" }}>
+                  {game.linescore.inningHalf?.charAt(0)} {game.linescore.currentInning}
+                </div>
+              )}
+              {isFinal && <div style={{ fontSize: 9, color: '#475569', marginTop: 2 }}>FINAL</div>}
+            </>
+          ) : (
+            <div style={{ fontSize: 11, color: '#64748b', fontFamily: "'Barlow Condensed',sans-serif" }}>
+              {gameTime}
+            </div>
+          )}
+        </div>
+
+        {/* Home */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            fontFamily: "'Barlow Condensed',sans-serif",
+            fontSize: 13, fontWeight: 700,
+            color: (isLive || isFinal) && game.home.score > game.away.score ? '#e2e8f0' : '#94a3b8',
+          }}>{game.home.abbr}</span>
+          <TeamLogo abbr={game.home.abbr} size={26} />
+        </div>
+      </div>
+
+      {/* Pitchers */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        fontSize: 10, color: '#475569',
+        borderTop: '1px solid rgba(255,255,255,0.04)',
+        paddingTop: 7,
+      }}>
+        <span style={{ maxWidth: 65, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {game.away.probSP?.split(' ').pop() || 'TBD'}
         </span>
-        <span style={{ color: '#475569', margin: '0 6px' }}>-</span>
-        <span style={{ color: game.home.score > game.away.score ? '#e2e8f0' : '#64748b' }}>
-          {game.home.score ?? 0}
+        {/* Weather icon */}
+        {game.weather && (
+          <span style={{ color: game.weather.impactColor, fontSize: 10, fontWeight: 700, fontFamily: "'Barlow Condensed',sans-serif" }}>
+            {game.weather.windSpeed}mph {game.weather.windDir}
+          </span>
+        )}
+        <span style={{ maxWidth: 65, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
+          {game.home.probSP?.split(' ').pop() || 'TBD'}
         </span>
       </div>
-      {isLive && game.linescore && (
-        <div style={{ fontSize: 10, color: '#22c55e', marginTop: 2, fontFamily: "'Barlow Condensed',sans-serif" }}>
-          {game.linescore.inningHalf?.charAt(0)} {game.linescore.currentInning}
+
+      {/* Weather badge */}
+      {game.weather && (
+        <div style={{ marginTop: 6 }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center',
+            padding: '2px 7px', borderRadius: 20,
+            background: `${game.weather.impactColor}18`,
+            color: game.weather.impactColor,
+            fontSize: 10, fontWeight: 700,
+            fontFamily: "'Barlow Condensed',sans-serif",
+            border: `1px solid ${game.weather.impactColor}30`,
+          }}>
+            {game.weather.temp}°F · {game.weather.impactLabel}
+          </span>
         </div>
       )}
-      {isFinal && <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>FINAL</div>}
     </div>
   );
 }
 
 export default function DailySlate() {
-  const { games, loading, error } = useSchedule();
-  const today = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-  const liveCount = games.filter(g => g.status === 'Live').length;
+  const { games, loading } = useSchedule();
+  const liveCount = games.filter((g: any) => g.status === 'Live').length;
 
   return (
-    <div style={{ paddingBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-        <div className="section-label" style={{ marginBottom: 0 }}>Today's Slate</div>
-        {liveCount > 0 && <LiveDot />}
-        <span style={{ color: '#64748b', fontSize: 12 }}>{today}</span>
-        {games.length > 0 && (
-          <span style={{ color: '#64748b', fontSize: 12 }}>· {games.length} Games</span>
-        )}
-      </div>
-
-      {loading && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(320px,1fr))', gap: 8 }}>
-          {[1,2,3,4,5,6].map(i => (
-            <div key={i} className="card" style={{ padding: 14, height: 110, background: 'rgba(255,255,255,0.03)' }} />
-          ))}
+    <div style={{
+      borderBottom: '1px solid rgba(255,255,255,0.05)',
+      background: '#0e0e0e',
+      padding: '10px 20px',
+    }}>
+      <div style={{ maxWidth: 1400, margin: '0 auto' }}>
+        {/* Label row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <span style={{
+            fontFamily: "'Barlow Condensed',sans-serif",
+            fontSize: 11, fontWeight: 700, color: '#c41e3a',
+            textTransform: 'uppercase', letterSpacing: '.1em',
+          }}>Today's Slate</span>
+          {liveCount > 0 && <LiveDot />}
+          {!loading && games.length > 0 && (
+            <span style={{ fontSize: 11, color: '#334155' }}>{games.length} games</span>
+          )}
         </div>
-      )}
 
-      {error && (
-        <div style={{ color: '#f87171', fontSize: 13, padding: '12px 0' }}>
-          Could not load schedule: {error}
+        {/* Horizontal scroll */}
+        <div style={{
+          display: 'flex',
+          gap: 8,
+          overflowX: 'auto',
+          paddingBottom: 4,
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'rgba(196,30,58,0.2) transparent',
+        }}>
+          {loading ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} style={{
+                flexShrink: 0, width: 190, height: 90,
+                background: 'rgba(255,255,255,0.03)',
+                borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)',
+                animation: 'pulse 1.5s ease-in-out infinite',
+                animationDelay: `${i * 0.1}s`,
+              }} />
+            ))
+          ) : games.length === 0 ? (
+            <div style={{ color: '#334155', fontSize: 13, padding: '8px 0' }}>No games scheduled today.</div>
+          ) : (
+            games.map((g: any) => <GameCard key={g.id} game={g} />)
+          )}
         </div>
-      )}
-
-      {!loading && games.length === 0 && !error && (
-        <div style={{ color: '#475569', fontSize: 13, padding: '12px 0' }}>No games scheduled today.</div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(320px,1fr))', gap: 8 }}>
-        {games.map((g: any) => (
-          <div key={g.id} className="card" style={{ padding: '12px 14px' }}>
-            {/* Teams + Score */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <TeamLogo abbr={g.away.abbr} size={24} />
-                <span style={{ fontFamily: "'Barlow Condensed',sans-serif", fontWeight: 700, fontSize: 14 }}>{g.away.abbr}</span>
-                <span style={{ color: '#475569', fontSize: 11 }}>@</span>
-                <TeamLogo abbr={g.home.abbr} size={24} />
-                <span style={{ fontFamily: "'Barlow Condensed',sans-serif", fontWeight: 700, fontSize: 14 }}>{g.home.abbr}</span>
-              </div>
-              <ScoreDisplay game={g} />
-            </div>
-
-            {/* Probable Pitchers */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#64748b', marginBottom: 8 }}>
-              <span>{g.away.probSP}</span>
-              <span style={{ color: '#334155' }}>vs</span>
-              <span>{g.home.probSP}</span>
-            </div>
-
-            {/* Venue */}
-            <div style={{ fontSize: 11, color: '#475569', marginBottom: 8 }}>{g.venue}</div>
-
-            {/* Weather */}
-            {g.weather && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4,
-                background: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: '7px 10px' }}>
-                {[
-                  { label: 'TEMP', val: `${g.weather.temp}°F` },
-                  { label: 'WIND', val: `${g.weather.windSpeed}mph` },
-                  { label: 'DIR',  val: g.weather.windDir },
-                  { label: 'RAIN', val: `${g.weather.rainPct}%` },
-                ].map(w => (
-                  <div key={w.label} style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 9, color: '#475569', fontFamily: "'Barlow Condensed',sans-serif",
-                      textTransform: 'uppercase', letterSpacing: '0.08em' }}>{w.label}</div>
-                    <div style={{ fontSize: 12, fontFamily: "'Barlow Condensed',sans-serif",
-                      fontWeight: 600, color: '#cbd5e1', marginTop: 1 }}>{w.val}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {g.weather && (
-              <div style={{ marginTop: 7 }}>
-                <WeatherBadge weather={g.weather} />
-              </div>
-            )}
-          </div>
-        ))}
       </div>
+      <style>{`@keyframes pulse{0%,100%{opacity:.4}50%{opacity:.8}}`}</style>
     </div>
   );
 }
