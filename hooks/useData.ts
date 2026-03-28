@@ -216,19 +216,26 @@ export function useDFSOptimizer(players: any[]) {
     mode = 'cash' as 'cash' | 'gpp',
     randomness = 0,
     minUnique = 2,
+    minSalary = 49000,
+    maxExposure = 100,  // % max times a player can appear across all lineups
+    maxOwnership = 0,   // % max proj ownership (GPP filter)
   }) => {
     // Only include players with proj points > 0
     const pool = players.filter(p =>
       !excluded.includes(p.id) &&
-      (p.proj_fpts || 0) > 0
+      (p.proj_fpts || 0) > 0 &&
+      (maxOwnership === 0 || (p.proj_ownership || 0) <= maxOwnership || locked.includes(p.id))
     );
+
+    // Track exposure counts per player id
+    const exposureCounts: Record<number, number> = {};
 
     const lineups: any[] = [];
     let seed = 1;
 
     while (lineups.length < numLineups && seed < numLineups * 20) {
       seed++;
-      const lu = buildLineup(pool, locked, SALARY_CAP, SALARY_MIN, seed, stackTeam, stackSize, mode, randomness);
+      const lu = buildLineup(pool, locked, SALARY_CAP, minSalary, seed, stackTeam, stackSize, mode, randomness, exposureCounts, maxExposure, numLineups);
       if (!lu) continue;
 
       // Enforce min unique players vs previous lineup
@@ -239,6 +246,10 @@ export function useDFSOptimizer(players: any[]) {
         if (unique < minUnique) continue;
       }
 
+      // Update exposure counts
+      for (const p of lu.players) {
+        exposureCounts[p.id] = (exposureCounts[p.id] || 0) + 1;
+      }
       lineups.push(lu);
     }
 
@@ -277,6 +288,9 @@ function buildLineup(
   stackSize: number,
   mode: string,
   randomness: number,
+  exposureCounts: Record<number, number> = {},
+  maxExposure: number = 100,
+  totalLineups: number = 1,
 ): any | null {
   const rand = seededRng(seed);
 
@@ -316,6 +330,13 @@ function buildLineup(
       if (!positions.includes(p.position)) continue;
       if (roster.some(r => r.id === p.id)) continue;
 
+      // Enforce max exposure
+      if (maxExposure < 100 && !locked.includes(p.id)) {
+        const timesUsed = exposureCounts[p.id] || 0;
+        const maxAllowed = Math.max(1, Math.ceil((maxExposure / 100) * totalLineups));
+        if (timesUsed >= maxAllowed) continue;
+      }
+
       const slotsLeft = 10 - roster.length;
       // Must leave enough salary for remaining slots (min $3000 each)
       const salNeededAfter = (slotsLeft - 1) * 3000;
@@ -350,5 +371,3 @@ function buildLineup(
     projFpts: parseFloat(final.reduce((s: number, p: any) => s + (p.proj_fpts || 0), 0).toFixed(1)),
   };
 }
-
-
