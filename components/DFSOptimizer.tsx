@@ -18,9 +18,14 @@ function valColor(v: number) {
 // Download lineups as DraftKings-compatible CSV
 function downloadLineups(lineups: any[]) {
   if (!lineups.length) return;
+  // DraftKings bulk upload requires "Name (ID)" format in exact slot order
   const rows = lineups.map(lu => {
     const sorted = [...lu.players].sort((a, b) => (POS_ORDER[a.position] ?? 9) - (POS_ORDER[b.position] ?? 9));
-    return sorted.map((p: any) => `"${p.player_name}"`).join(',');
+    return sorted.map((p: any) => {
+      // Use dk_name_id if stored (e.g. "Bryan Woo (42431061)"), else fall back to plain name
+      const dkName = p.dk_name_id || p.player_name;
+      return `"${dkName}"`;
+    }).join(',');
   });
   const header = 'SP,SP,C,1B,2B,3B,SS,OF,OF,OF';
   const csv = [header, ...rows].join('\n');
