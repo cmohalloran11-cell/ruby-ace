@@ -9,6 +9,9 @@ const ALL_TEAMS = ['NYY','BOS','LAD','SF','HOU','TEX','ATL','PHI','NYM','CHC','M
 const TEAM_COLORS: Record<string,string> = {
   NYY:'#0d1b2a',BOS:'#bd3039',LAD:'#005a9c',SF:'#fd5a1e',HOU:'#eb6e1f',TEX:'#003278',
   ATL:'#ce1141',PHI:'#e81828',NYM:'#002d72',CHC:'#0e3386',MIL:'#12284b',SD:'#2f241d',
+  STL:'#c41e3a',CIN:'#c6011f',PIT:'#27251f',COL:'#333366',ARI:'#a71930',SEA:'#0c2c56',
+  DET:'#0c2340',CLE:'#e31937',MIN:'#002b5c',KC:'#004687',CWS:'#27251f',TOR:'#134a8e',
+  BAL:'#df4601',TB:'#092c5c',MIA:'#00a3e0',WSH:'#ab0003',OAK:'#003831',LAA:'#ba0021',
 };
 
 export default function UserSettings({ onClose }: { onClose: () => void }) {
@@ -22,36 +25,44 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<'espn'|'teams'|'notifications'>('espn');
+  const [showS2, setShowS2] = useState(false);
+  const [showSwid, setShowSwid] = useState(false);
 
-  // Load current settings
+  // Load current settings — including ESPN credentials
   useEffect(() => {
     if (!token) return;
     fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => {
         setEspnLeagueId(data.espn_league_id || '');
+        // Load saved ESPN cookies back into state
+        setEspnS2(data.espn_s2 || '');
+        setEspnSwid(data.espn_swid || '');
         setFavTeams(data.fav_teams || []);
         setNotifyInjuries(data.notify_prefs?.injuries ?? true);
         setNotifyLineups(data.notify_prefs?.lineups ?? true);
-      });
+      })
+      .catch(() => {});
   }, [token]);
 
   const save = async () => {
     setSaving(true);
-    await fetch('/api/me', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        espn_league_id: espnLeagueId || null,
-        espn_s2: espnS2 || null,
-        espn_swid: espnSwid || null,
-        fav_teams: favTeams,
-        notify_prefs: { injuries: notifyInjuries, lineups: notifyLineups },
-      }),
-    });
+    try {
+      await fetch('/api/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          espn_league_id: espnLeagueId || null,
+          espn_s2: espnS2 || null,
+          espn_swid: espnSwid || null,
+          fav_teams: favTeams,
+          notify_prefs: { injuries: notifyInjuries, lineups: notifyLineups },
+        }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch {}
     setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
   };
 
   const toggleTeam = (t: string) => {
@@ -64,41 +75,44 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
     { id: 'notifications' as const, label: 'Notifications' },
   ];
 
+  const inputStyle = {
+    background: '#141414',
+    border: '1px solid rgba(255,255,255,0.08)',
+    color: '#e2e8f0',
+    borderRadius: 6,
+    padding: '8px 12px',
+    fontSize: 13,
+    outline: 'none',
+    width: '100%',
+    fontFamily: "'Barlow',sans-serif",
+  };
+
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(2,8,16,0.85)',
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
     }} onClick={onClose}>
       <div className="card" style={{
-        padding: 0, width: 480, maxHeight: '85vh', overflow: 'hidden',
-        boxShadow: '0 0 0 1px rgba(59,130,246,0.25), 0 4px 40px rgba(0,0,0,0.6)',
+        padding: 0, width: 500, maxHeight: '88vh', overflow: 'hidden',
+        boxShadow: '0 0 0 1px rgba(196,30,58,0.25), 0 4px 40px rgba(0,0,0,0.7)',
       }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div style={{
-          padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: 18, fontWeight: 700 }}>
-              Settings
-            </div>
+            <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: 18, fontWeight: 700 }}>Settings</div>
             <div style={{ fontSize: 12, color: '#64748b' }}>{user?.username} · {user?.email}</div>
           </div>
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 20, lineHeight: 1,
-          }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>✕</button>
         </div>
 
         {/* Sub-tabs */}
-        <div style={{
-          display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.07)',
-          padding: '0 20px',
-        }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '0 20px' }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-              background: 'none', border: 'none', borderBottom: `2px solid ${activeTab === t.id ? '#3b82f6' : 'transparent'}`,
-              color: activeTab === t.id ? '#93c5fd' : '#64748b',
+              background: 'none', border: 'none',
+              borderBottom: `2px solid ${activeTab === t.id ? '#c41e3a' : 'transparent'}`,
+              color: activeTab === t.id ? '#f06070' : '#64748b',
               padding: '10px 14px', cursor: 'pointer', fontSize: 13,
               fontFamily: "'Barlow',sans-serif", fontWeight: 500,
               transition: 'all .15s', marginBottom: -1,
@@ -107,21 +121,26 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Content */}
-        <div style={{ padding: 20, overflowY: 'auto', maxHeight: 'calc(85vh - 140px)' }}>
+        <div style={{ padding: 20, overflowY: 'auto', maxHeight: 'calc(88vh - 150px)' }}>
 
           {/* ESPN */}
           {activeTab === 'espn' && (
             <div>
               <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 1.6 }}>
-                Connect your ESPN Fantasy Baseball league to sync your roster, standings, waiver wire, and transactions.
+                Connect your ESPN Fantasy Baseball league to sync your roster, standings, and transactions.
               </div>
 
-              <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>
                   League ID <span style={{ color: '#475569' }}>— from your ESPN league URL</span>
                 </label>
-                <input className="input-field" placeholder="e.g. 336271"
-                  value={espnLeagueId} onChange={e => setEspnLeagueId(e.target.value)} />
+                <input
+                  style={inputStyle}
+                  placeholder="e.g. 872182831"
+                  value={espnLeagueId}
+                  onChange={e => setEspnLeagueId(e.target.value)}
+                  autoComplete="off"
+                />
               </div>
 
               <div style={{
@@ -129,26 +148,62 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
                 borderRadius: 6, padding: '10px 12px', fontSize: 12, color: '#fbbf24',
                 marginBottom: 16, lineHeight: 1.6,
               }}>
-                <strong>Private league?</strong> You need your ESPN cookies. In Chrome: go to ESPN Fantasy →
-                open DevTools (F12) → Application tab → Cookies → fantasy.espn.com →
-                copy <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: 3 }}>espn_s2</code> and{' '}
-                <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: 3 }}>SWID</code> values below.
-                Public leagues leave these blank.
+                <strong>Private league?</strong> Get your ESPN cookies: Chrome → ESPN Fantasy →
+                F12 → Application → Cookies → espn.com → copy <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: 3 }}>espn_s2</code> and <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: 3 }}>SWID</code> below.
               </div>
 
-              <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>
-                  espn_s2 cookie <span style={{ color: '#475569' }}>— private leagues only</span>
+                  espn_s2 cookie
                 </label>
-                <input className="input-field" placeholder="AEB3K2..." type="password"
-                  value={espnS2} onChange={e => setEspnS2(e.target.value)} />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    style={{ ...inputStyle, paddingRight: 60 }}
+                    placeholder="AEB3K2..."
+                    type={showS2 ? 'text' : 'password'}
+                    value={espnS2}
+                    onChange={e => setEspnS2(e.target.value)}
+                    autoComplete="new-password"
+                    spellCheck={false}
+                  />
+                  <button onClick={() => setShowS2(!showS2)} style={{
+                    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 11,
+                    fontFamily: "'Barlow Condensed',sans-serif",
+                  }}>{showS2 ? 'Hide' : 'Show'}</button>
+                </div>
+                {espnS2 && (
+                  <div style={{ fontSize: 11, color: '#22c55e', marginTop: 4 }}>
+                    ✓ Saved ({espnS2.length} chars)
+                  </div>
+                )}
               </div>
+
               <div style={{ marginBottom: 4 }}>
                 <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>
-                  SWID cookie <span style={{ color: '#475569' }}>— private leagues only</span>
+                  SWID cookie <span style={{ color: '#475569' }}>— include the curly braces</span>
                 </label>
-                <input className="input-field" placeholder="{A1B2C3D4-...}"
-                  value={espnSwid} onChange={e => setEspnSwid(e.target.value)} />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    style={{ ...inputStyle, paddingRight: 60 }}
+                    placeholder="{A1B2C3D4-1234-...}"
+                    type={showSwid ? 'text' : 'password'}
+                    value={espnSwid}
+                    onChange={e => setEspnSwid(e.target.value)}
+                    autoComplete="new-password"
+                    spellCheck={false}
+                  />
+                  <button onClick={() => setShowSwid(!showSwid)} style={{
+                    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 11,
+                    fontFamily: "'Barlow Condensed',sans-serif",
+                  }}>{showSwid ? 'Hide' : 'Show'}</button>
+                </div>
+                {espnSwid && (
+                  <div style={{ fontSize: 11, color: '#22c55e', marginTop: 4 }}>
+                    ✓ Saved ({espnSwid.length} chars)
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -165,12 +220,12 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
                   const bg = TEAM_COLORS[t] || '#1e293b';
                   return (
                     <button key={t} onClick={() => toggleTeam(t)} style={{
-                      padding: '8px 4px', borderRadius: 6, border: `1px solid ${selected ? '#3b82f6' : 'rgba(255,255,255,0.08)'}`,
+                      padding: '8px 4px', borderRadius: 6,
+                      border: `1px solid ${selected ? 'rgba(196,30,58,0.6)' : 'rgba(255,255,255,0.08)'}`,
                       background: selected ? `${bg}dd` : 'rgba(255,255,255,0.03)',
                       color: '#fff', cursor: 'pointer', fontSize: 12,
                       fontFamily: "'Barlow Condensed',sans-serif", fontWeight: 700,
                       transition: 'all .15s',
-                      boxShadow: selected ? '0 0 0 1px rgba(59,130,246,0.5)' : 'none',
                     }}>{t}</button>
                   );
                 })}
@@ -198,7 +253,7 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
                   </div>
                   <button onClick={() => item.set(!item.val)} style={{
                     width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                    background: item.val ? '#1d4ed8' : 'rgba(255,255,255,0.1)',
+                    background: item.val ? '#9b1c35' : 'rgba(255,255,255,0.1)',
                     position: 'relative', transition: 'background .2s', flexShrink: 0,
                   }}>
                     <span style={{
@@ -214,10 +269,7 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Footer */}
-        <div style={{
-          padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,0.07)',
-          display: 'flex', justifyContent: 'flex-end', gap: 10,
-        }}>
+        <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button className="btn-outline" onClick={onClose}>Cancel</button>
           <button className="btn-primary" onClick={save} disabled={saving}>
             {saving ? 'Saving...' : saved ? '✓ Saved!' : 'Save Settings'}
