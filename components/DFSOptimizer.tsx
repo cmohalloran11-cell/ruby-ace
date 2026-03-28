@@ -60,12 +60,15 @@ export default function DFSOptimizer() {
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
 
   // Settings
-  const [numLineups, setNum]    = useState(3);
-  const [stackTeam, setStack]   = useState('');
-  const [stackSize, setStackSz] = useState(3);
-  const [mode, setMode]         = useState<'cash'|'gpp'>('cash');
-  const [minUnique, setUniq]    = useState(2);
-  const [randomness, setRand]   = useState(0);
+  const [numLineups, setNum]      = useState(3);
+  const [stackTeam, setStack]     = useState('');
+  const [stackSize, setStackSz]   = useState(3);
+  const [mode, setMode]           = useState<'cash'|'gpp'>('cash');
+  const [minUnique, setUniq]      = useState(2);
+  const [randomness, setRand]     = useState(0);
+  const [minSalary, setMinSal]    = useState(49000);
+  const [maxExposure, setMaxExp]  = useState(100);
+  const [maxOwnership, setMaxOwn] = useState(0);
 
   // Output
   const [lineups, setLineups]   = useState<any[]>([]);
@@ -125,6 +128,9 @@ export default function DFSOptimizer() {
         mode,
         randomness,
         minUnique,
+        minSalary,
+        maxExposure,
+        maxOwnership,
       });
       setLineups(result);
       setIdx(0);
@@ -307,8 +313,48 @@ export default function DFSOptimizer() {
             </div>
             <div>
               <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Min unique players</div>
-              <input className="input-field" type="number" min={0} max={8}
-                value={minUnique} onChange={e => setUniq(Math.min(8, Math.max(0, +e.target.value)))} />
+              <input className="input-field" type="number" min={0} max={9}
+                value={minUnique} onChange={e => setUniq(Math.min(9, Math.max(0, +e.target.value)))} />
+            </div>
+          </div>
+
+          {/* Salary range */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Min salary</div>
+              <input className="input-field" type="number" min={30000} max={50000} step={100}
+                value={minSalary} onChange={e => setMinSal(Math.min(50000, Math.max(30000, +e.target.value)))} />
+              <div style={{ fontSize: 10, color: '#475569', marginTop: 3 }}>Default $49,000</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Max salary</div>
+              <input className="input-field" type="number" value={50000} disabled
+                style={{ opacity: 0.4 }} />
+              <div style={{ fontSize: 10, color: '#475569', marginTop: 3 }}>DK cap $50,000</div>
+            </div>
+          </div>
+
+          {/* Exposure + Ownership */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
+                Max exposure %
+              </div>
+              <input className="input-field" type="number" min={1} max={100}
+                value={maxExposure} onChange={e => setMaxExp(Math.min(100, Math.max(1, +e.target.value)))} />
+              <div style={{ fontSize: 10, color: '#475569', marginTop: 3 }}>
+                {maxExposure === 100 ? 'No limit — player can appear in all lineups' : `Max ${maxExposure}% of lineups (~${Math.ceil(maxExposure/100*numLineups)} of ${numLineups})`}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
+                Max own% <span style={{ color: '#475569' }}>(GPP)</span>
+              </div>
+              <input className="input-field" type="number" min={0} max={100}
+                value={maxOwnership} onChange={e => setMaxOwn(Math.min(100, Math.max(0, +e.target.value)))} />
+              <div style={{ fontSize: 10, color: '#475569', marginTop: 3 }}>
+                {maxOwnership === 0 ? 'No limit' : `Skip players projected >${maxOwnership}% owned`}
+              </div>
             </div>
           </div>
 
@@ -443,6 +489,20 @@ export default function DFSOptimizer() {
                         </div>
                         <div style={{ fontSize: 10, color: '#475569' }}>{p.team}</div>
                       </div>
+                      {/* Exposure badge */}
+                      {lineups.length > 1 && (() => {
+                        const count = lineups.filter(lu => lu.players.some((lp:any) => lp.id === p.id)).length;
+                        const pct = Math.round((count / lineups.length) * 100);
+                        return (
+                          <div style={{
+                            fontSize: 10, fontFamily: "'Barlow Condensed',sans-serif", fontWeight: 700,
+                            color: pct >= 80 ? '#ef4444' : pct >= 50 ? '#f59e0b' : '#64748b',
+                            flexShrink: 0, minWidth: 32, textAlign: 'center',
+                          }} title={`In ${count} of ${lineups.length} lineups`}>
+                            {pct}%
+                          </div>
+                        );
+                      })()}
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
                         <div style={{ fontFamily: "'Barlow Condensed',sans-serif", color: '#60a5fa', fontWeight: 700, fontSize: 15 }}>
                           {(p.proj_fpts || 0).toFixed(1)}
