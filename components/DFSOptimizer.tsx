@@ -49,7 +49,7 @@ function downloadLineups(lineups: any[]) {
 
 export default function DFSOptimizer() {
   const { players, loading } = useProjections();
-  const { optimize, SALARY_CAP, SALARY_MIN } = useDFSOptimizer(players);
+  const { optimize, simulateContest, SALARY_CAP, SALARY_MIN } = useDFSOptimizer(players);
 
   // Pool
   const [pos, setPos]           = useState('All');
@@ -75,6 +75,12 @@ export default function DFSOptimizer() {
   const [activeIdx, setIdx]     = useState(0);
   const [generating, setGen]    = useState(false);
   const [warn, setWarn]         = useState('');
+
+  // Contest sim
+  const [simResults, setSimResults] = useState<any[]>([]);
+  const [simming, setSimming]       = useState(false);
+  const [fieldSize, setFieldSize]   = useState(1000);
+  const [showSim, setShowSim]       = useState(false);
 
   const teams = useMemo(() =>
     Array.from(new Set(players.map((p: any) => p.team).filter(Boolean))).sort() as string[],
@@ -114,6 +120,17 @@ export default function DFSOptimizer() {
   const toggleLock = (id: number) => setLocked(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleExclude = (id: number) => setExcluded(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearAll = () => { setLocked(new Set()); setExcluded(new Set()); };
+
+  const runSim = () => {
+    if (!lineups.length) return;
+    setSimming(true);
+    setShowSim(true);
+    setTimeout(() => {
+      const results = simulateContest(lineups, fieldSize);
+      setSimResults(results || []);
+      setSimming(false);
+    }, 50);
+  };
 
   const generate = () => {
     setGen(true);
@@ -396,6 +413,18 @@ export default function DFSOptimizer() {
             </div>
           )}
 
+          {/* Active rules display */}
+          <div style={{ marginBottom: 12, padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, fontSize: 11, color: '#475569', lineHeight: 1.8 }}>
+            <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4, fontSize: 11 }}>OPTIMIZER RULES (always active)</div>
+            <div>✓ No batters vs your own pitchers</div>
+            <div>✓ Min ${(minSalary/1000).toFixed(0)}k salary floor — max $50k cap</div>
+            <div>✓ No $4k min-salary plays under 8 proj FP</div>
+            {maxExposure < 100 && <div style={{ color: '#f59e0b' }}>✓ Max {maxExposure}% exposure per player</div>}
+            {maxOwnership > 0 && <div style={{ color: '#f59e0b' }}>✓ Skip players over {maxOwnership}% ownership</div>}
+            {stackTeam && <div style={{ color: '#60a5fa' }}>✓ {stackSize}-man {stackTeam} stack enforced</div>}
+            {mode === 'gpp' && <div style={{ color: '#f06070' }}>✓ GPP ownership penalty active</div>}
+          </div>
+
           <button className="btn-primary"
             style={{ width: '100%', padding: 12, fontSize: 14 }}
             onClick={generate}
@@ -527,8 +556,91 @@ export default function DFSOptimizer() {
                   style={{ width: '100%', marginTop: 12, fontSize: 13, padding: '8px 0' }}>
                   ⬇ Download all {lineups.length} lineup{lineups.length !== 1 ? 's' : ''} (.csv)
                 </button>
+
+                {/* Contest Sim */}
+                <div style={{ marginTop: 12, borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 12 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: '#94a3b8', flexShrink: 0 }}>Field size</div>
+                    <input className="input-field" type="number" min={10} max={100000}
+                      value={fieldSize} onChange={e => setFieldSize(Math.max(10, +e.target.value))}
+                      style={{ width: 90 }} />
+                    <button className="btn-outline" onClick={runSim} disabled={simming}
+                      style={{ flex: 1, fontSize: 12, padding: '6px 0' }}>
+                      {simming ? '⏳ Simulating...' : '🎲 Run Contest Sim'}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#475569' }}>
+                    Simulates 500 contests vs a {fieldSize.toLocaleString()}-person field to estimate win/cash rates
+                  </div>
+                </div>
               </>
             )}
+          </div>
+        )}
+
+        {/* Contest Sim Results */}
+        {showSim && simResults.length > 0 && (
+          <div className="card" style={{ padding: 16, marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div className="section-label" style={{ marginBottom: 0 }}>Contest Sim — {fieldSize.toLocaleString()} person field</div>
+              <button onClick={() => setShowSim(false)} style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 18 }}>×</button>
+            </div>
+
+            {/* Summary row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 14 }}>
+              {[
+                { label: 'Avg win rate', val: `${(simResults.reduce((s,r)=>s+r.winPct,0)/simResults.length).toFixed(1)}%`, color: '#22c55e' },
+                { label: 'Avg top 10%', val: `${(simResults.reduce((s,r)=>s+r.top10Pct,0)/simResults.length).toFixed(1)}%`, color: '#60a5fa' },
+                { label: 'Avg top 25%', val: `${(simResults.reduce((s,r)=>s+r.top25Pct,0)/simResults.length).toFixed(1)}%`, color: '#f59e0b' },
+              ].map(m => (
+                <div key={m.label} style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: '8px 4px' }}>
+                  <div style={{ fontSize: 10, color: '#475569', fontFamily: "'Barlow Condensed',sans-serif", textTransform: 'uppercase', letterSpacing: '.06em' }}>{m.label}</div>
+                  <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: 20, fontWeight: 700, color: m.color }}>{m.val}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-lineup table */}
+            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+              <table className="data-table" style={{ fontSize: 11 }}>
+                <thead><tr>
+                  <th>#</th><th>Avg FP</th><th>Floor</th><th>Ceiling</th>
+                  <th style={{ color: '#22c55e' }}>Win%</th>
+                  <th style={{ color: '#60a5fa' }}>Top 10%</th>
+                  <th style={{ color: '#f59e0b' }}>Top 25%</th>
+                  <th>Rating</th>
+                </tr></thead>
+                <tbody>
+                  {simResults.map((r, i) => {
+                    const rating = r.winPct * 3 + r.top10Pct * 1.5 + r.top25Pct;
+                    const maxRating = Math.max(...simResults.map(x => x.winPct*3+x.top10Pct*1.5+x.top25Pct));
+                    const isTop = rating >= maxRating * 0.9;
+                    return (
+                      <tr key={i} style={{ background: isTop ? 'rgba(34,197,94,0.05)' : '' }}
+                          onClick={() => setIdx(i)}>
+                        <td style={{ fontWeight: 600, color: isTop ? '#22c55e' : '#94a3b8' }}>
+                          {isTop ? '★' : ''} L{i+1}
+                        </td>
+                        <td style={{ fontFamily: "'Barlow Condensed',sans-serif", fontWeight: 600, color: '#60a5fa' }}>{r.avgScore}</td>
+                        <td style={{ color: '#64748b' }}>{r.minScore}</td>
+                        <td style={{ color: '#94a3b8' }}>{r.maxScore}</td>
+                        <td style={{ color: '#22c55e', fontWeight: 600 }}>{r.winPct}%</td>
+                        <td style={{ color: '#60a5fa' }}>{r.top10Pct}%</td>
+                        <td style={{ color: '#f59e0b' }}>{r.top25Pct}%</td>
+                        <td>
+                          <div style={{ width: 60, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{ width: `${(rating/maxRating)*100}%`, height: '100%', background: isTop ? '#22c55e' : '#c41e3a', borderRadius: 3 }} />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11, color: '#334155', marginTop: 8 }}>
+              Click a row to view that lineup. ★ = best lineup. Based on 500 Monte Carlo simulations.
+            </div>
           </div>
         )}
       </div>
