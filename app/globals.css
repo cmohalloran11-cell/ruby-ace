@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --black-950: #080808;
+    --black-900: #0e0e0e;
+    --black-800: #141414;
+    --black-700: #1a1a1a;
+    --black-600: #242424;
+    --ruby-900: #1a0508;
+    --ruby-800: #2d0810;
+    --ruby-700: #3d0d16;
+    --ruby-600: #6b1526;
+    --ruby-500: #9b1c35;
+    --ruby-400: #c41e3a;
+    --ruby-300: #e02247;
+    --ruby-200: #f06070;
+    --ruby-100: #fca5b0;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Barlow', sans-serif;
+    background: var(--black-900);
+    color: #e2e8f0;
+  }
+
+  .bc { font-family: 'Barlow Condensed', sans-serif; }
+}
+
+@layer components {
+  .card {
+    background: var(--black-700);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+  }
+
+  .card-sm {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 6px;
+  }
+
+  .btn-primary {
+    background: var(--ruby-500);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    transition: background 0.15s;
+    padding: 8px 16px;
+  }
+  .btn-primary:hover { background: var(--ruby-400); }
+
+  .btn-outline {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #94a3b8;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+    padding: 5px 12px;
+  }
+  .btn-outline:hover {
+    border-color: var(--ruby-400);
+    color: var(--ruby-200);
+  }
+
+  .btn-danger {
+    background: rgba(196,30,58,0.2);
+    border: 1px solid rgba(196,30,58,0.4);
+    color: var(--ruby-200);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px 10px;
+    transition: all 0.15s;
+  }
+  .btn-danger:hover { background: rgba(196,30,58,0.35); }
+
+  .section-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ruby-300);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 10px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.06em;
+  }
+
+  .tab-btn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #64748b;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    padding: 8px 16px;
+  }
+  .tab-btn:hover {
+    border-color: var(--ruby-500);
+    color: var(--ruby-200);
+  }
+  .tab-btn.active {
+    background: var(--ruby-800);
+    border-color: var(--ruby-500);
+    color: var(--ruby-200);
+  }
+
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .data-table td {
+    padding: 9px 10px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    vertical-align: middle;
+  }
+  .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .input-field {
+    background: var(--black-800);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    outline: none;
+    width: 100%;
+    font-family: 'Barlow', sans-serif;
+    transition: border-color 0.15s;
+  }
+  .input-field:focus { border-color: var(--ruby-500); }
+
+  .neon-green  { color: #22c55e; }
+  .neon-red    { color: var(--ruby-300); }
+  .neon-blue   { color: #60a5fa; }
+  .neon-yellow { color: #f59e0b; }
+  .neon-ruby   { color: var(--ruby-300); }
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(196,30,58,0.25); border-radius: 2px; }
+::-webkit-scrollbar-track { background: transparent; }
