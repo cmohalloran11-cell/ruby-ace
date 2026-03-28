@@ -415,14 +415,15 @@ export default function DFSOptimizer() {
 
           {/* Active rules display */}
           <div style={{ marginBottom: 12, padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, fontSize: 11, color: '#475569', lineHeight: 1.8 }}>
-            <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4, fontSize: 11 }}>OPTIMIZER RULES (always active)</div>
-            <div>✓ No batters vs your own pitchers</div>
-            <div>✓ Min ${(minSalary/1000).toFixed(0)}k salary floor — max $50k cap</div>
-            <div>✓ No $4k min-salary plays under 8 proj FP</div>
-            {maxExposure < 100 && <div style={{ color: '#f59e0b' }}>✓ Max {maxExposure}% exposure per player</div>}
-            {maxOwnership > 0 && <div style={{ color: '#f59e0b' }}>✓ Skip players over {maxOwnership}% ownership</div>}
-            {stackTeam && <div style={{ color: '#60a5fa' }}>✓ {stackSize}-man {stackTeam} stack enforced</div>}
-            {mode === 'gpp' && <div style={{ color: '#f06070' }}>✓ GPP ownership penalty active</div>}
+            <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4, fontSize: 11 }}>ACTIVE RULES</div>
+            <div>✓ No batters vs your own pitcher in same lineup</div>
+            <div>✓ Salary: <span style={{ color: '#94a3b8' }}>${minSalary.toLocaleString()} min – $50,000 cap</span></div>
+            <div>✓ Skips $4k plays projecting under 8 FP</div>
+            <div>✓ Will always generate {numLineups} lineup{numLineups !== 1 ? 's' : ''} by relaxing constraints if needed</div>
+            {maxExposure < 100 && <div style={{ color: '#f59e0b' }}>✓ Max {maxExposure}% exposure (~{Math.ceil(maxExposure/100*numLineups)} of {numLineups} lineups)</div>}
+            {maxOwnership > 0 && <div style={{ color: '#f59e0b' }}>✓ Exclude players over {maxOwnership}% ownership</div>}
+            {stackTeam && <div style={{ color: '#60a5fa' }}>✓ {stackSize}-man {stackTeam} stack</div>}
+            {mode === 'gpp' && <div style={{ color: '#f06070' }}>✓ GPP: ownership penalty on chalk players</div>}
           </div>
 
           <button className="btn-primary"
