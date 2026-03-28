@@ -32,16 +32,19 @@ export default function ESPNLeague() {
   if (error) {
     return (
       <div className="card" style={{ padding: 20 }}>
-        <div style={{ color: '#f87171', fontSize: 13, marginBottom: 12 }}>⚠ {error}</div>
+        <div style={{ color: '#f87171', fontSize: 14, fontWeight: 500, marginBottom: 8 }}>⚠ {error}</div>
         {error.includes('No ESPN league') ? (
-          <div style={{ fontSize: 13, color: '#64748b' }}>
-            Go to Settings (click your username in the header) → ESPN League tab → enter your League ID and save.
+          <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
+            Go to <strong style={{ color: '#94a3b8' }}>Settings</strong> (click your username in the header) → ESPN League tab → enter your League ID, espn_s2 cookie, and SWID → Save Settings.
           </div>
         ) : (
-          <div style={{ fontSize: 13, color: '#64748b' }}>
-            Check that your League ID and cookies are correct in Settings.
+          <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6, marginBottom: 14 }}>
+            ESPN's API is blocking the request. This usually means your cookies have expired — go to Settings and re-paste your espn_s2 and SWID cookies, then come back and click Sync.
           </div>
         )}
+        <button className="btn-outline" style={{ marginTop: 12 }} onClick={load}>
+          ↻ Try again
+        </button>
       </div>
     );
   }
