@@ -211,80 +211,149 @@ export function useDFSOptimizer(players: any[]) {
     excluded = [] as number[],
     numLineups = 1,
     stackTeam = null as string | null,
+    mode = 'cash' as 'cash' | 'gpp',
+    maxOwnership = 0,
+    minUnique = 2,
+    randomness = 0,
   }) => {
-    const eligible = players.filter(p => !excluded.includes(p.id));
-    const lineups = [];
-    for (let i = 0; i < numLineups; i++) {
-      const lu = buildLineup(eligible, locked, SALARY_CAP, i, stackTeam);
-      if (lu) lineups.push(lu);
+    const eligible = players.filter(p =>
+      !excluded.includes(p.id) &&
+      (p.proj_fpts || 0) > 0 &&
+      (maxOwnership === 0 || (p.proj_ownership || 0) <= maxOwnership || locked.includes(p.id))
+    );
+
+    const lineups: any[] = [];
+    let attempts = 0;
+
+    while (lineups.length < numLineups && attempts < numLineups * 10) {
+      attempts++;
+      const lu = buildLineup(eligible, locked, SALARY_CAP, attempts, stackTeam, mode, randomness);
+      if (!lu) continue;
+
+      // Enforce minimum unique players between consecutive lineups
+      if (minUnique > 0 && lineups.length > 0) {
+        const prev = lineups[lineups.length - 1];
+        const prevIds = new Set(prev.players.map((p: any) => p.id));
+        const unique = lu.players.filter((p: any) => !prevIds.has(p.id)).length;
+        if (unique < minUnique) continue;
+      }
+
+      lineups.push(lu);
     }
+
     return lineups;
   }, [players]);
 
   return { optimize, SALARY_CAP };
 }
 
-function rng(seed: number) {
-  let s = seed;
+function seededRng(seed: number) {
+  let s = (seed + 1) * 1664525 + 1013904223;
   return () => {
     s = (s * 1664525 + 1013904223) & 0xffffffff;
     return Math.abs(s) / 2147483648;
   };
 }
 
-function buildLineup(players: any[], locked: number[], cap: number, seed: number, stackTeam: string | null) {
-  const rand = rng(seed + 1);
-  const roster: any[] = [...players.filter(p => locked.includes(p.id))];
-  let salaryLeft = cap - roster.reduce((s: number, p: any) => s + (p.salary || 0), 0);
+function scorePlayer(p: any, mode: 'cash' | 'gpp', stackTeam: string | null, rand: () => number, randomness: number): number {
+  const proj = p.proj_fpts || 0;
+  const salary = p.salary || 1;
+  const own = p.proj_ownership || 0;
 
-  const sorted = [...players]
-    .filter(p => !locked.includes(p.id))
-    .sort((a, b) => {
-      const va = (a.proj_fpts / (a.salary || 1)) + rand() * 0.6;
-      const vb = (b.proj_fpts / (b.salary || 1)) + rand() * 0.6;
-      return vb - va;
-    });
+  // Base value: projected points per $1000 salary
+  let score = (proj / salary) * 1000;
 
-  // Stack bonus: bump stack team players up
-  if (stackTeam) {
-    sorted.forEach(p => {
-      if (p.team === stackTeam) p._stackBonus = 1.2;
-    });
-    sorted.sort((a, b) => {
-      const va = (a.proj_fpts / (a.salary || 1)) * (a._stackBonus || 1);
-      const vb = (b.proj_fpts / (b.salary || 1)) * (b._stackBonus || 1);
-      return vb - va;
-    });
+  if (mode === 'gpp') {
+    // GPP: reward high proj + low ownership (leverage)
+    // Ownership penalty — lower owned players get a boost
+    const ownPenalty = own > 0 ? (own / 100) * 0.4 : 0;
+    score = score * (1 - ownPenalty) + proj * 0.15;
+  } else {
+    // Cash: pure floor — maximize projected points relative to salary
+    // Slightly penalize very high ownership (avoid contrarian risk in cash)
+    score = proj * 0.6 + score * 0.4;
   }
+
+  // Stack team bonus
+  if (stackTeam && p.team === stackTeam && p.position !== 'SP') {
+    score *= 1.25;
+  }
+
+  // Randomness (0 = deterministic, 10 = very random)
+  if (randomness > 0) {
+    const noise = (rand() - 0.5) * (randomness / 10) * score * 0.5;
+    score += noise;
+  }
+
+  return score;
+}
+
+function buildLineup(
+  players: any[],
+  locked: number[],
+  cap: number,
+  seed: number,
+  stackTeam: string | null,
+  mode: 'cash' | 'gpp',
+  randomness: number,
+) {
+  const rand = seededRng(seed);
+  const roster: any[] = [...players.filter(p => locked.includes(p.id))];
+  let salaryUsed = roster.reduce((s: number, p: any) => s + (p.salary || 0), 0);
+
+  // Score and sort all available players
+  const available = [...players]
+    .filter(p => !locked.includes(p.id))
+    .map(p => ({ ...p, _score: scorePlayer(p, mode, stackTeam, rand, randomness) }))
+    .sort((a, b) => b._score - a._score);
+
+  const POSITIONS = [
+    { slots: ['SP'], count: 2 },
+    { slots: ['C'], count: 1 },
+    { slots: ['1B'], count: 1 },
+    { slots: ['2B'], count: 1 },
+    { slots: ['3B'], count: 1 },
+    { slots: ['SS'], count: 1 },
+    { slots: ['OF'], count: 3 },
+  ];
 
   const fill = (positions: string[], count: number) => {
     const current = roster.filter(p => positions.includes(p.position)).length;
     let needed = count - current;
-    for (const p of sorted) {
+
+    for (const p of available) {
       if (needed <= 0) break;
       if (!positions.includes(p.position)) continue;
       if (roster.some(r => r.id === p.id)) continue;
-      const minRemaining = (10 - roster.length - 1) * 3000;
-      if ((p.salary || 0) > salaryLeft - minRemaining) continue;
+
+      const slotsRemaining = 10 - roster.length;
+      // Ensure we leave enough salary room for remaining slots (min $3000/player)
+      const minSalaryNeeded = (slotsRemaining - 1) * 3000;
+      // Ensure we don't overspend
+      if (salaryUsed + (p.salary || 0) > cap - minSalaryNeeded) continue;
+
       roster.push(p);
-      salaryLeft -= (p.salary || 0);
+      salaryUsed += (p.salary || 0);
       needed--;
     }
   };
 
-  fill(['SP'], 2);
-  fill(['C'], 1);
-  fill(['1B'], 1);
-  fill(['2B'], 1);
-  fill(['3B'], 1);
-  fill(['SS'], 1);
-  fill(['OF'], 3);
+  for (const pos of POSITIONS) {
+    fill(pos.slots, pos.count);
+  }
 
   if (roster.length < 10) return null;
+
   const final = roster.slice(0, 10);
+  const totalSalary = final.reduce((s: number, p: any) => s + (p.salary || 0), 0);
+
+  // Reject lineups that are too far under the cap (poor salary utilization)
+  if (totalSalary < cap * 0.92) return null;
+
   return {
     players: final,
-    totalSalary: final.reduce((s: number, p: any) => s + (p.salary || 0), 0),
+    totalSalary,
     projFpts: parseFloat(final.reduce((s: number, p: any) => s + (p.proj_fpts || 0), 0).toFixed(1)),
+    avgOwnership: parseFloat((final.reduce((s: number, p: any) => s + (p.proj_ownership || 0), 0) / final.length).toFixed(1)),
   };
 }
