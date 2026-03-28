@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     const sb = getServiceSupabase();
     const { data, error } = await sb
       .from('users')
-      .select('id, email, username, role, subscription, fav_teams, notify_prefs, espn_league_id, created_at')
+      .select('id, email, username, role, subscription, fav_teams, notify_prefs, espn_league_id, espn_s2, espn_swid, created_at')
       .eq('id', user.userId)
       .single();
     if (error) throw error;
