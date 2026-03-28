@@ -228,26 +228,45 @@ export function useDFSOptimizer(players: any[]) {
 
     const exposureCounts: Record<number, number> = {};
     const lineups: any[] = [];
-    let seed = 1;
-    let attempts = 0;
+    let seed = 0;
 
-    while (lineups.length < numLineups && attempts < numLineups * 40) {
-      seed++; attempts++;
-      const lu = buildLineup(pool, locked, SALARY_CAP, minSalary, seed, stackTeam, stackSize, mode, randomness, exposureCounts, maxExposure, numLineups);
-      if (!lu) continue;
+    // Phase 1: strict — all constraints active
+    // Phase 2: relax minUnique
+    // Phase 3: relax exposure
+    // Phase 4: relax salary floor slightly
+    // This ensures we always hit numLineups no matter what
+    for (let phase = 1; phase <= 4 && lineups.length < numLineups; phase++) {
+      const effectiveMinUnique  = phase >= 2 ? Math.max(0, minUnique  - (phase - 2))     : minUnique;
+      const effectiveMaxExp     = phase >= 3 ? Math.min(100, maxExposure + (phase - 2) * 25) : maxExposure;
+      const effectiveMinSal     = phase >= 4 ? Math.max(45000, minSalary - 1000)            : minSalary;
+      const phaseAttempts       = numLineups * 30;
 
-      // Enforce min unique vs ALL previous lineups (not just last)
-      if (minUnique > 0 && lineups.length > 0) {
-        const prev = lineups[lineups.length - 1];
-        const prevIds = new Set(prev.players.map((p: any) => p.id));
-        const unique = lu.players.filter((p: any) => !prevIds.has(p.id)).length;
-        if (unique < minUnique) continue;
+      for (let a = 0; a < phaseAttempts && lineups.length < numLineups; a++) {
+        seed++;
+        // Add more randomness in later phases to get different combos
+        const effectiveRandom = randomness + (phase - 1) * 1.5;
+        const lu = buildLineup(pool, locked, SALARY_CAP, effectiveMinSal, seed, stackTeam, stackSize, mode, effectiveRandom, exposureCounts, effectiveMaxExp, numLineups);
+        if (!lu) continue;
+
+        // Min unique check — relaxed in phase 2+
+        if (effectiveMinUnique > 0 && lineups.length > 0) {
+          const prev = lineups[lineups.length - 1];
+          const prevIds = new Set(prev.players.map((p: any) => p.id));
+          const unique = lu.players.filter((p: any) => !prevIds.has(p.id)).length;
+          if (unique < effectiveMinUnique) continue;
+        }
+
+        // Skip genuinely terrible lineups — projFpts must be at least 70% of best lineup
+        if (lineups.length > 0) {
+          const bestFP = lineups[0].projFpts;
+          if (lu.projFpts < bestFP * 0.70) continue;
+        }
+
+        for (const p of lu.players) {
+          exposureCounts[p.id] = (exposureCounts[p.id] || 0) + 1;
+        }
+        lineups.push(lu);
       }
-
-      for (const p of lu.players) {
-        exposureCounts[p.id] = (exposureCounts[p.id] || 0) + 1;
-      }
-      lineups.push(lu);
     }
 
     return lineups;
