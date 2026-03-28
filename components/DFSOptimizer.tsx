@@ -15,30 +15,30 @@ function valColor(v: number) {
   return '#94a3b8';
 }
 
-// Download lineups as DraftKings-compatible CSV
-// DK bulk upload requires: header = P,P,C,1B,2B,3B,SS,OF,OF,OF and cells = numeric ID only
+// Download lineups in DraftKings DKEntries.csv format
+// Format: Entry ID, Contest Name, Contest ID, Entry Fee, P, P, C, 1B, 2B, 3B, SS, OF, OF, OF
+// Players use "Name (ID)" format. Entry ID/Contest cols left blank — user pastes into their DKEntries file.
 function downloadLineups(lineups: any[]) {
   if (!lineups.length) return;
 
-  const extractId = (nameId: string): string => {
-    const m = nameId?.match(/\((\d+)\)/);
-    return m ? m[1] : nameId;
-  };
+  const header = ['Entry ID','Contest Name','Contest ID','Entry Fee','P','P','C','1B','2B','3B','SS','OF','OF','OF'];
 
-  const rows = lineups.map(lu => {
+  const rows = lineups.map((lu, i) => {
     const sorted = [...lu.players].sort((a, b) => (POS_ORDER[a.position] ?? 9) - (POS_ORDER[b.position] ?? 9));
-    return sorted.map((p: any) => {
-      // Extract numeric ID from dk_name_id "Name (12345678)" or use raw dk_id
-      if (p.dk_name_id) return extractId(p.dk_name_id);
-      if (p.dk_id) return p.dk_id;
-      return p.player_name; // last resort — DK will reject but at least it's readable
-    }).join(',');
+    const players = sorted.map((p: any) => {
+      // Use dk_name_id "Name (ID)" format — what DK DKEntries.csv expects
+      if (p.dk_name_id) return p.dk_name_id;
+      return p.player_name;
+    });
+    // Leave entry metadata blank — user fills from their DKEntries download
+    return ['', '', '', '', ...players];
   });
 
-  // DK requires exactly this header — P not SP
-  const header = 'P,P,C,1B,2B,3B,SS,OF,OF,OF';
-  const csv = [header, ...rows].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
+  const csvContent = [header, ...rows]
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
