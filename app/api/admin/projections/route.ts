@@ -91,10 +91,7 @@ function mapRow(R: Record<string, string>, source: string, slateDate: string): a
     proj_k:   parseFloat(R['K']   || R['SO'] || '0') || 0,
     proj_ip:  parseFloat(R['IP']  || '0') || 0,
     proj_er:  parseFloat(R['ER']  || '0') || 0,
-    proj_era: parseFloat(R['ERA'] || '0') || 0,
-    proj_whip: parseFloat(R['WHIP'] || '0') || 0,
     proj_bb:  parseFloat(R['BB']  || '0') || 0,
-    proj_avg: parseFloat(R['BA']  || R['AVG'] || '0') || 0,
     source,
     slate_date: slateDate,
   };
