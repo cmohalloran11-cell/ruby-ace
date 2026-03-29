@@ -461,115 +461,76 @@ export function useDFSOptimizer(players: any[]) {
   }) => {
     // Pool: proj_fpts > 0, IPL (in probable lineup) filter, not excluded
     const excludedSet = new Set(excluded);
-    const pool = players.filter(p =>
+    const pool = players.filter((p: any) =>
       !excludedSet.has(p.id) &&
       (p.proj_fpts || 0) > 0 &&
-      // Only include confirmed lineup players — IPL=true from theBatX
-      // Locked players always included regardless of IPL
       (p.in_probable_lineup !== false || locked.includes(p.id)) &&
-      // Ownership filter (GPP use)
       (maxOwnership === 0 || (p.proj_ownership || 0) <= maxOwnership || locked.includes(p.id))
     );
 
-    // Debug: log pool composition
-    const poolSPs   = pool.filter((p:any) => p.position === 'SP');
-    const poolBats  = pool.filter((p:any) => p.position !== 'SP');
-    const hasSalary = pool.filter((p:any) => (p.salary||0) > 0).length;
-    const positions = [...new Set(pool.map((p:any) => p.position))];
-    console.log('[Optimizer] Pool:', pool.length, 'total |', poolSPs.length, 'SPs |', poolBats.length, 'hitters | salary>0:', hasSalary, '| positions:', positions.sort().join(','));
-    console.log('[Optimizer] Sample player:', pool[0] ? JSON.stringify({name:pool[0].player_name,pos:pool[0].position,sal:pool[0].salary,fpts:pool[0].proj_fpts,opp:pool[0].opp}) : 'none');
-    if (pool.length < 10) {
-      console.warn('[Optimizer] Pool too small:', pool.length, 'players');
-      return [];
-    }
+    console.log('[Optimizer] Pool:', pool.length, 'total |',
+      pool.filter((p:any)=>p.position==='SP').length, 'SPs | salary>0:',
+      pool.filter((p:any)=>(p.salary||0)>0).length, '| fpts>0:',
+      pool.filter((p:any)=>(p.proj_fpts||0)>0).length,
+      '| positions:', [...new Set(pool.map((p:any)=>p.position))].sort().join(', '));
 
-    // Build SP→opp map from the pool
+    if (pool.length < 10) return [];
+
+    // Build SP->opp map
     const oppMap: Record<string, string> = {};
     for (const p of pool) {
-      if (p.position === 'SP' && p.opp) oppMap[p.team] = p.opp;
+      if (p.position === 'SP' && p.opp) oppMap[p.team as string] = p.opp as string;
     }
 
     const exposureCounts: Record<number, number> = {};
     const lineups: any[] = [];
-    const usedLineupHashes = new Set<string>();
-
+    const usedHashes = new Set<string>();
     let seed = 0;
-    let totalAttempts = 0;
-    const MAX_ATTEMPTS = numLineups * 200;
 
-    while (lineups.length < numLineups && totalAttempts < MAX_ATTEMPTS) {
+    for (let attempt = 0; attempt < numLineups * 300 && lineups.length < numLineups; attempt++) {
       seed++;
-      totalAttempts++;
-
-      // Noise: 0 for first few lineups (optimal), increasing for variety
-      // Scale by lineup count so 20-lineup sets get more variety than 3-lineup sets
-      const progressRatio = lineups.length / numLineups;
-      const noisePts = progressRatio * 3.5 * (numLineups > 5 ? 1.2 : 0.8);
-
-      // Rotate through selected combos — each lineup gets the next combo in the list
-      const comboIdx = lineups.length % stackCombos.length;
-      const stackCombo = stackCombos[comboIdx] || [];
+      const noisePts = (lineups.length / Math.max(numLineups, 1)) * 4;
+      const stackCombo = stackCombos[lineups.length % stackCombos.length] || [];
 
       const roster = buildOne(pool, {
-        locked,
-        excluded: excludedSet,
-        cap: DK_CAP,
-        minSal: minSalary,
-        stackTeam,
-        stackCombo,
-        mode,
-        noisePts,
-        maxExposure,
-        totalLineups: numLineups,
-        exposureCounts,
-        oppMap,
-        maxPerTeam: 10,
-        ruleNoBatterVsPitcher,
-        ruleNoSameGameSPs,
-        ruleMinSalary,
+        locked, excluded: excludedSet, cap: DK_CAP, minSal: minSalary,
+        stackTeam, stackCombo, mode, noisePts,
+        maxExposure, totalLineups: numLineups, exposureCounts,
+        oppMap, maxPerTeam: 10,
+        ruleNoBatterVsPitcher, ruleNoSameGameSPs, ruleMinSalary,
         rngSeed: seed,
       });
 
-      if (!roster) continue;
+      if (!roster) {
+        if (seed <= 3) console.warn('[Optimizer] seed='+seed+' buildOne=null');
+        continue;
+      }
 
-      // Dedup check — hash by sorted player IDs
-      const hash = [...roster].map(p => p.id).sort().join(',');
-      if (usedLineupHashes.has(hash)) continue;
+      const hash = roster.map((p:any) => p.id).sort().join(',');
+      if (usedHashes.has(hash)) continue;
 
-      // Min unique vs previous lineup
       if (minUnique > 0 && lineups.length > 0) {
-        const prevIds = new Set(lineups[lineups.length - 1].players.map((p: any) => p.id));
-        const uniqueCount = roster.filter(p => !prevIds.has(p.id)).length;
-        if (uniqueCount < minUnique) continue;
+        const prev = new Set(lineups[lineups.length-1].players.map((p:any) => p.id));
+        if (roster.filter((p:any) => !prev.has(p.id)).length < minUnique) continue;
       }
 
-      // Quality floor: at least 80% of best lineup's proj FP
       if (lineups.length > 0) {
-        const thisFP = roster.reduce((s, p) => s + (p.proj_fpts || 0), 0);
-        const bestFP = lineups[0].projFpts;
-        if (thisFP < bestFP * 0.80) continue;
+        const fp = roster.reduce((s:number,p:any) => s+(p.proj_fpts||0), 0);
+        if (fp < lineups[0].projFpts * 0.75) continue;
       }
 
-      // Update exposure
-      for (const p of roster) {
-        exposureCounts[p.id] = (exposureCounts[p.id] || 0) + 1;
-      }
+      for (const p of roster) exposureCounts[p.id] = (exposureCounts[p.id]||0) + 1;
+      usedHashes.add(hash);
 
-      usedLineupHashes.add(hash);
-
-      const totalSalary = roster.reduce((s, p) => s + (p.salary || 0), 0);
-      const projFpts    = parseFloat(roster.reduce((s, p) => s + (p.proj_fpts || 0), 0).toFixed(1));
-      const avgOwn      = parseFloat((roster.reduce((s, p) => s + (p.proj_ownership || 0), 0) / roster.length).toFixed(1));
-
-      lineups.push({ players: roster, totalSalary, projFpts, avgOwnership: avgOwn });
+      lineups.push({
+        players: roster,
+        totalSalary: roster.reduce((s:number,p:any) => s+(p.salary||0), 0),
+        projFpts: parseFloat(roster.reduce((s:number,p:any) => s+(p.proj_fpts||0), 0).toFixed(1)),
+        avgOwnership: parseFloat((roster.reduce((s:number,p:any) => s+(p.proj_ownership||0), 0)/roster.length).toFixed(1)),
+      });
     }
 
-    if (lineups.length === 0) {
-      console.warn('[Optimizer] Zero lineups built. Pool size:', pool.length,
-        'oppMap:', JSON.stringify(oppMap));
-    } else {
-      console.log('[Optimizer] Built', lineups.length, 'lineups. First:', lineups[0].projFpts, 'FP');
-    }
+    console.log('[Optimizer] Built', lineups.length, '/', numLineups, 'lineups');
     return lineups;
   }, [players]);
 
