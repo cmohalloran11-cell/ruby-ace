@@ -61,13 +61,11 @@ function mapTheBatX(R: Record<string, string>, source: string, slateDate: string
   const ceiling = parseFloat(R['CEILING'] || '0') || 0;
   const lineupPos = parseInt(R['LP'] || '0') || 0;
 
-  const ipl = String(R['IPL'] || R['OL'] || '').toLowerCase() === 'true';
 
   return {
     player_name: name.trim(),
     dk_name_id: dkNameId || undefined,
     opp: opp || undefined,
-    in_probable_lineup: ipl,
     team, position,
     proj_fpts:    proj,
     proj_ownership: own,
@@ -199,32 +197,43 @@ export async function POST(request: NextRequest) {
         let inserted = 0;
         let firstError = '';
         for (let i = 0; i < rows.length; i += 50) {
-          const batch = rows.slice(i, i + 50).map((row: any) => ({
-            player_name:        row.player_name,
-            team:               row.team,
-            position:           row.position,
-            salary:             row.salary || 0,
-            proj_fpts:          row.proj_fpts || 0,
-            proj_ownership:     row.proj_ownership || 0,
-            proj_floor:         row.proj_floor || 0,
-            proj_ceiling:       row.proj_ceiling || 0,
-            lineup_pos:         row.lineup_pos || 0,
-            in_probable_lineup: row.in_probable_lineup ?? true,
-            opp:                row.opp || null,
-            dk_name_id:         row.dk_name_id || null,
-            proj_hr:            row.proj_hr || 0,
-            proj_rbi:           row.proj_rbi || 0,
-            proj_r:             row.proj_r || 0,
-            proj_sb:            row.proj_sb || 0,
-            proj_h:             row.proj_h || 0,
-            proj_k:             row.proj_k || 0,
-            proj_ip:            row.proj_ip || 0,
-            proj_er:            row.proj_er || 0,
-            proj_pitching_k:    row.proj_pitching_k || 0,
-            proj_bb:            row.proj_bb || 0,
-            source:             'upload',
-            slate_date:         slateDate,
-          }));
+          // Core columns only — matches original schema guaranteed to exist in live DB
+          // Run the SQL below in Supabase to add optional columns:
+          // ALTER TABLE projections ADD COLUMN IF NOT EXISTS opp text;
+          // ALTER TABLE projections ADD COLUMN IF NOT EXISTS dk_name_id text;
+          // ALTER TABLE projections ADD COLUMN IF NOT EXISTS proj_floor numeric(6,2) default 0;
+          // ALTER TABLE projections ADD COLUMN IF NOT EXISTS proj_ceiling numeric(6,2) default 0;
+          // ALTER TABLE projections ADD COLUMN IF NOT EXISTS lineup_pos int default 0;
+          const batch = rows.slice(i, i + 50).map((row: any) => {
+            const r: Record<string, any> = {
+              player_name:     row.player_name,
+              team:            row.team,
+              position:        row.position,
+              salary:          row.salary || 0,
+              proj_fpts:       row.proj_fpts || 0,
+              proj_ownership:  row.proj_ownership || 0,
+              proj_hr:         row.proj_hr || 0,
+              proj_rbi:        row.proj_rbi || 0,
+              proj_r:          row.proj_r || 0,
+              proj_sb:         row.proj_sb || 0,
+              proj_h:          row.proj_h || 0,
+              proj_k:          row.proj_k || 0,
+              proj_ip:         row.proj_ip || 0,
+              proj_er:         row.proj_er || 0,
+              proj_pitching_k: row.proj_pitching_k || 0,
+              proj_bb:         row.proj_bb || 0,
+              source:          'upload',
+              slate_date:      slateDate,
+            };
+            // Optional columns — only add if they've been added to your Supabase table
+            // To add them: go to Supabase → Table Editor → projections → Add column
+            if (row.opp)          r.opp          = row.opp;
+            if (row.dk_name_id)   r.dk_name_id   = row.dk_name_id;
+            if (row.proj_floor)   r.proj_floor   = row.proj_floor;
+            if (row.proj_ceiling) r.proj_ceiling  = row.proj_ceiling;
+            if (row.lineup_pos)   r.lineup_pos    = row.lineup_pos;
+            return r;
+          });
 
           const { data: upserted, error: batchErr } = await sb
             .from('projections')
