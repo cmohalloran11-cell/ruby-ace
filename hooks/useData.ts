@@ -38,8 +38,6 @@ export function useSchedule(date?: string) {
   }, [date]);
 
   useEffect(() => { load(); }, [load]);
-
-  // Auto-refresh every 60s
   useEffect(() => {
     const interval = setInterval(load, 60000);
     return () => clearInterval(interval);
@@ -169,7 +167,6 @@ export function useAdminProjections(date?: string) {
     });
     const result = await res.json();
     setSaving(false);
-    // Reload after upload
     apiFetch(`/api/admin/projections?date=${d}`, token)
       .then(data => setPlayers(Array.isArray(data) ? data : []));
     return result;
@@ -202,10 +199,247 @@ export function useAdminUsers() {
   return { users, loading, updateUser };
 }
 
-// ── DFS Optimizer (client-side) ───────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// DFS OPTIMIZER
+// ═══════════════════════════════════════════════════════════════
+
+const DK_CAP  = 50000;
+const DK_MIN  = 49000;
+const DK_SLOT_MIN = 2000; // DK absolute minimum salary per player
+
+// DK MLB Classic: 2 SP, 1 C, 1 1B, 1 2B, 1 3B, 1 SS, 3 OF
+const SLOTS = [
+  { key: 'SP', positions: ['SP'],       count: 2 },
+  { key: 'C',  positions: ['C'],        count: 1 },
+  { key: '1B', positions: ['1B'],       count: 1 },
+  { key: '2B', positions: ['2B'],       count: 1 },
+  { key: '3B', positions: ['3B'],       count: 1 },
+  { key: 'SS', positions: ['SS'],       count: 1 },
+  { key: 'OF', positions: ['OF'],       count: 3 },
+];
+
+// Seeded deterministic RNG (LCG)
+function mkRng(seed: number) {
+  let s = (seed * 1664525 + 1013904223) >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0xffffffff;
+  };
+}
+
+// ── Composite player score ────────────────────────────────────
+function compositeScore(p: any, mode: 'cash' | 'gpp', stackTeam: string | null): number {
+  const proj    = p.proj_fpts    || 0;
+  const floor   = p.proj_floor   || proj * 0.3;
+  const ceiling = p.proj_ceiling || proj * 1.8;
+  const own     = p.proj_ownership || 0;
+  const sal     = p.salary || 3000;
+  const lp      = p.lineup_pos  || 5; // batting order position, default middle
+  const isSP    = p.position === 'SP';
+
+  // Value = pts per $1k salary
+  const value = (proj / sal) * 1000;
+
+  // Lineup position factor — leadoff (1) and cleanup (3,4) get slight boost
+  const lpFactor = lp === 1 ? 1.05 : lp <= 4 ? 1.03 : lp >= 8 ? 0.97 : 1.0;
+
+  let score: number;
+
+  if (mode === 'cash') {
+    // Cash: maximize FLOOR, weight floor heavily, blend with value
+    // We want players who reliably produce, not lottery tickets
+    score = (floor * 0.55 + proj * 0.35 + value * 0.1) * lpFactor;
+    // Penalize very cheap players — drags salary utilization down
+    if (sal < 4000) score *= 0.88;
+    if (sal < 3500) score *= 0.80;
+  } else {
+    // GPP: maximize CEILING leverage = ceiling relative to ownership
+    // Low-owned ceiling plays are the goal
+    const ceilingLeverage = own > 0 ? ceiling / Math.sqrt(own) : ceiling * 1.5;
+    score = (ceilingLeverage * 0.5 + proj * 0.35 + value * 0.15) * lpFactor;
+    // Penalize high ownership — chalk is bad in GPPs
+    if (own > 40) score *= 0.70;
+    else if (own > 30) score *= 0.82;
+    else if (own > 20) score *= 0.92;
+    else if (own < 8 && !isSP) score *= 1.08; // low-owned bonus
+  }
+
+  // Stack team batter boost
+  if (stackTeam && p.team === stackTeam && !isSP) {
+    score *= 1.25;
+  }
+
+  return score;
+}
+
+// ── Build one lineup ──────────────────────────────────────────
+interface BuildOptions {
+  locked:         number[];
+  excluded:       Set<number>;
+  cap:            number;
+  minSal:         number;
+  stackTeam:      string | null;
+  stackSize:      number;
+  mode:           'cash' | 'gpp';
+  noisePts:       number;   // flat points of noise added to scores
+  maxExposure:    number;   // 0-100 %
+  totalLineups:   number;
+  exposureCounts: Record<number, number>;
+  oppMap:         Record<string, string>; // spTeam -> opponentTeam
+  maxPerTeam:     number;
+  minSalaryUsage: number;   // minimum salary to use
+  rngSeed:        number;
+}
+
+function buildOne(pool: any[], opts: BuildOptions): any[] | null {
+  const {
+    locked, excluded, cap, minSal, stackTeam, stackSize,
+    mode, noisePts, maxExposure, totalLineups, exposureCounts,
+    oppMap, maxPerTeam, rngSeed,
+  } = opts;
+
+  const rng = mkRng(rngSeed);
+  const maxAllowed = maxExposure < 100
+    ? Math.max(1, Math.floor((maxExposure / 100) * totalLineups))
+    : Infinity;
+
+  // Score each player once, add flat-point noise (not percentage)
+  // Flat noise prevents low-proj players from jumping over high-proj players
+  const scored = pool
+    .filter(p => !excluded.has(p.id))
+    .map(p => {
+      const base = compositeScore(p, mode, stackTeam);
+      // Noise: ±noisePts flat — a player projecting 18 FP won't drop below
+      // a player projecting 8 FP even with max noise
+      const noise = noisePts > 0 ? (rng() - 0.5) * noisePts * 2 : 0;
+      return { ...p, _base: base, _score: base + noise };
+    })
+    .sort((a, b) => b._score - a._score);
+
+  // Build opp map: SP team → team they're pitching against
+  const spOppMap = { ...oppMap };
+  for (const p of pool) {
+    if (p.position === 'SP' && p.opp && !spOppMap[p.team]) {
+      spOppMap[p.team] = p.opp;
+    }
+  }
+
+  // batter faces SP check
+  const batterFacesSP = (batterTeam: string, spTeam: string) =>
+    spOppMap[spTeam] === batterTeam;
+
+  const roster: any[] = [];
+  const usedIds = new Set<number>();
+  let salUsed = 0;
+
+  // Lock in forced players first
+  for (const p of scored) {
+    if (locked.includes(p.id) && !usedIds.has(p.id)) {
+      roster.push(p);
+      usedIds.add(p.id);
+      salUsed += p.salary || 0;
+    }
+  }
+
+  const fill = (positions: string[], count: number): boolean => {
+    const have = roster.filter(p => positions.includes(p.position)).length;
+    let need = count - have;
+
+    for (const p of scored) {
+      if (need <= 0) break;
+      if (!positions.includes(p.position)) continue;
+      if (usedIds.has(p.id)) continue;
+
+      // ── HARD RULE: no batter vs own SP ──────────────────────
+      if (p.position !== 'SP') {
+        const spInRoster = roster.filter(r => r.position === 'SP');
+        if (spInRoster.some(sp => batterFacesSP(p.team, sp.team))) continue;
+      }
+      if (p.position === 'SP') {
+        const battersInRoster = roster.filter(r => r.position !== 'SP');
+        if (battersInRoster.some(b => batterFacesSP(b.team, p.team))) continue;
+      }
+
+      // ── HARD RULE: no two SPs from same game ────────────────
+      if (p.position === 'SP') {
+        const spInRoster = roster.filter(r => r.position === 'SP');
+        for (const sp of spInRoster) {
+          // Same game = they face each other
+          if (spOppMap[sp.team] === p.team || spOppMap[p.team] === sp.team) continue;
+        }
+      }
+
+      // ── HARD RULE: max exposure ──────────────────────────────
+      if (maxExposure < 100 && !locked.includes(p.id)) {
+        if ((exposureCounts[p.id] || 0) >= maxAllowed) continue;
+      }
+
+      // ── HARD RULE: max players per team ─────────────────────
+      if (maxPerTeam < 10) {
+        const teamCount = roster.filter(r => r.team === p.team).length;
+        if (teamCount >= maxPerTeam) continue;
+      }
+
+      // ── HARD RULE: no worthless min-salary plays ────────────
+      if ((p.salary || 0) <= 3500 && (p.proj_fpts || 0) < 7) continue;
+
+      // ── HARD RULE: stack enforcement ─────────────────────────
+      if (stackTeam && p.position !== 'SP') {
+        const stackHave = roster.filter(r => r.team === stackTeam && r.position !== 'SP').length;
+        const slotsLeft = count - roster.filter(r => positions.includes(r.position)).length;
+        const stackLeft = scored.filter(c =>
+          positions.includes(c.position) &&
+          !usedIds.has(c.id) &&
+          c.team === stackTeam
+        ).length;
+        // If we still need stack players and they're available, don't pick non-stack
+        if (stackHave < stackSize && p.team !== stackTeam && stackLeft >= slotsLeft) continue;
+      }
+
+      // ── Salary headroom check ────────────────────────────────
+      // After adding this player, remaining slots need at least DK_SLOT_MIN each
+      const slotsRemaining = 10 - roster.length - 1;
+      const salAfter = salUsed + (p.salary || 0);
+      // Don't exceed cap (leave DK_SLOT_MIN per remaining slot)
+      if (salAfter > cap - slotsRemaining * DK_SLOT_MIN) continue;
+      // Don't go so cheap we can't reach the salary floor
+      // Assume remaining players average at most $7000 (generous ceiling)
+      if (salAfter + slotsRemaining * 7000 < minSal) continue;
+
+      roster.push(p);
+      usedIds.add(p.id);
+      salUsed += p.salary || 0;
+      need--;
+    }
+
+    return need === 0;
+  };
+
+  // Fill all slots
+  let ok = true;
+  for (const slot of SLOTS) {
+    if (!fill(slot.positions, slot.count)) { ok = false; break; }
+  }
+
+  if (!ok || roster.length !== 10) return null;
+
+  const totalSalary = roster.reduce((s, p) => s + (p.salary || 0), 0);
+  if (totalSalary < minSal || totalSalary > cap) return null;
+
+  // Final validation: no batter vs SP
+  const finalSPs = roster.filter(p => p.position === 'SP');
+  const finalBats = roster.filter(p => p.position !== 'SP');
+  for (const sp of finalSPs) {
+    for (const b of finalBats) {
+      if (batterFacesSP(b.team, sp.team)) return null;
+    }
+  }
+
+  return roster;
+}
+
+// ── Main optimizer hook ───────────────────────────────────────
 export function useDFSOptimizer(players: any[]) {
-  const SALARY_CAP = 50000;
-  const SALARY_MIN = 49000;
 
   const optimize = useCallback(({
     locked       = [] as number[],
@@ -214,327 +448,161 @@ export function useDFSOptimizer(players: any[]) {
     stackTeam    = null as string | null,
     stackSize    = 3,
     mode         = 'cash' as 'cash' | 'gpp',
-    randomness   = 0,
     minUnique    = 2,
     minSalary    = 49000,
     maxExposure  = 100,
     maxOwnership = 0,
+    maxPerTeam   = 6,
   }) => {
+    // Pool: proj_fpts > 0, IPL (in probable lineup) filter, not excluded
+    const excludedSet = new Set(excluded);
     const pool = players.filter(p =>
-      !excluded.includes(p.id) &&
+      !excludedSet.has(p.id) &&
       (p.proj_fpts || 0) > 0 &&
+      // Only include confirmed lineup players — IPL=true from theBatX
+      // Locked players always included regardless of IPL
+      (p.in_probable_lineup !== false || locked.includes(p.id)) &&
+      // Ownership filter (GPP use)
       (maxOwnership === 0 || (p.proj_ownership || 0) <= maxOwnership || locked.includes(p.id))
     );
 
-    // Build pitcher → opponent team map from pool
-    // Pitchers and batters share a game — identify pairs by matching teams
-    // SP team X pitches vs batter team Y: both appear in pool
-    // We infer this: for every SP in pool, find which non-SP teams they're NOT on
-    // Use opp field if present, otherwise infer from known game matchups
-    const pitcherOppMap: Record<string, string> = {};
-    const pitchers = pool.filter(p => p.position === 'SP');
-    const batterTeams = [...new Set(pool.filter(p => p.position !== 'SP').map((p:any) => p.team as string))];
-    pitchers.forEach((sp: any) => {
-      // opp field from DB if available
-      if (sp.opp) {
-        pitcherOppMap[sp.team] = sp.opp;
-        return;
-      }
-      // Infer: sp.team plays against exactly one other team in the slate
-      // Find the team that shares a game with sp.team but isn't sp.team
-      // We approximate by excluding sp.team from batter teams — if only one other
-      // team could be the opponent (limited slate), pick the one most likely
-      // For now store empty — anti-correlation rule will use team-based inference below
-    });
+    if (pool.length < 10) {
+      return []; // not enough players
+    }
+
+    // Build SP→opp map from the pool
+    const oppMap: Record<string, string> = {};
+    for (const p of pool) {
+      if (p.position === 'SP' && p.opp) oppMap[p.team] = p.opp;
+    }
 
     const exposureCounts: Record<number, number> = {};
     const lineups: any[] = [];
+    const usedLineupHashes = new Set<string>();
+
     let seed = 0;
+    let totalAttempts = 0;
+    const MAX_ATTEMPTS = numLineups * 200;
 
-    for (let phase = 1; phase <= 4 && lineups.length < numLineups; phase++) {
-      const effectiveMinUnique = phase >= 2 ? Math.max(0, minUnique - (phase - 2)) : minUnique;
-      // Exposure: use ACTUAL lineups built so far, not requested total
-      // maxAllowed recalculated each iteration based on real progress
-      const effectiveMaxExp    = phase >= 3 ? Math.min(100, maxExposure + (phase - 2) * 20) : maxExposure;
-      const effectiveMinSal    = phase >= 4 ? Math.max(45000, minSalary - 1000) : minSalary;
-      const phaseAttempts      = numLineups * 40;
+    while (lineups.length < numLineups && totalAttempts < MAX_ATTEMPTS) {
+      seed++;
+      totalAttempts++;
 
-      for (let a = 0; a < phaseAttempts && lineups.length < numLineups; a++) {
-        seed++;
-        const effectiveRandom = randomness + (phase - 1) * 1.5;
-        // Pass current lineup count so exposure is based on actual progress
-        const lu = buildLineup(pool, locked, SALARY_CAP, effectiveMinSal, seed, stackTeam, stackSize, mode, effectiveRandom, exposureCounts, effectiveMaxExp, numLineups, pitcherOppMap);
-        if (!lu) continue;
+      // Noise: 0 for first few lineups (optimal), increasing for variety
+      // Scale by lineup count so 20-lineup sets get more variety than 3-lineup sets
+      const progressRatio = lineups.length / numLineups;
+      const noisePts = progressRatio * 3.5 * (numLineups > 5 ? 1.2 : 0.8);
 
-        if (effectiveMinUnique > 0 && lineups.length > 0) {
-          const prev = lineups[lineups.length - 1];
-          const prevIds = new Set(prev.players.map((p: any) => p.id));
-          const unique = lu.players.filter((p: any) => !prevIds.has(p.id)).length;
-          if (unique < effectiveMinUnique) continue;
-        }
+      const roster = buildOne(pool, {
+        locked,
+        excluded: excludedSet,
+        cap: DK_CAP,
+        minSal: minSalary,
+        stackTeam,
+        stackSize,
+        mode,
+        noisePts,
+        maxExposure,
+        totalLineups: numLineups,
+        exposureCounts,
+        oppMap,
+        maxPerTeam,
+        minSalaryUsage: minSalary,
+        rngSeed: seed,
+      });
 
-        // Reject lineups below 72% of best — no garbage lineups
-        if (lineups.length > 0 && lu.projFpts < lineups[0].projFpts * 0.72) continue;
+      if (!roster) continue;
 
-        for (const p of lu.players) {
-          exposureCounts[p.id] = (exposureCounts[p.id] || 0) + 1;
-        }
-        lineups.push(lu);
+      // Dedup check — hash by sorted player IDs
+      const hash = [...roster].map(p => p.id).sort().join(',');
+      if (usedLineupHashes.has(hash)) continue;
+
+      // Min unique vs previous lineup
+      if (minUnique > 0 && lineups.length > 0) {
+        const prevIds = new Set(lineups[lineups.length - 1].players.map((p: any) => p.id));
+        const uniqueCount = roster.filter(p => !prevIds.has(p.id)).length;
+        if (uniqueCount < minUnique) continue;
       }
+
+      // Quality floor: at least 80% of best lineup's proj FP
+      if (lineups.length > 0) {
+        const thisFP = roster.reduce((s, p) => s + (p.proj_fpts || 0), 0);
+        const bestFP = lineups[0].projFpts;
+        if (thisFP < bestFP * 0.80) continue;
+      }
+
+      // Update exposure
+      for (const p of roster) {
+        exposureCounts[p.id] = (exposureCounts[p.id] || 0) + 1;
+      }
+
+      usedLineupHashes.add(hash);
+
+      const totalSalary = roster.reduce((s, p) => s + (p.salary || 0), 0);
+      const projFpts    = parseFloat(roster.reduce((s, p) => s + (p.proj_fpts || 0), 0).toFixed(1));
+      const avgOwn      = parseFloat((roster.reduce((s, p) => s + (p.proj_ownership || 0), 0) / roster.length).toFixed(1));
+
+      lineups.push({ players: roster, totalSalary, projFpts, avgOwnership: avgOwn });
     }
 
     return lineups;
   }, [players]);
 
-  // Contest simulation — given your lineups, simulate against a field
-  const simulateContest = useCallback((lineups: any[], fieldSize: number = 1000, payoutStructure: 'top10' | 'top25' | 'h2h' = 'top25') => {
-    if (!lineups.length || !players.length) return null;
-
-    // Score a lineup using DK scoring rules with variance
-    const scoreLine = (lineup: any[], rng: () => number) => {
-      return lineup.reduce((sum: number, p: any) => {
-        const base = p.proj_fpts || 0;
-        // Add realistic variance: ~25% std dev for hitters, ~35% for pitchers
-        const stdDev = p.position === 'SP' ? base * 0.35 : base * 0.25;
-        const variance = stdDev * (rng() + rng() + rng() + rng() - 2); // approx normal via CLT
-        return sum + Math.max(0, base + variance);
-      }, 0);
-    };
-
-    const rng = seededRng(42);
+  // ── Contest simulator ───────────────────────────────────────
+  const simulateContest = useCallback((lineups: any[], fieldSize: number = 1000) => {
+    if (!lineups.length) return null;
     const NUM_SIMS = 500;
-    const results = lineups.map(() => ({ wins: 0, top10: 0, top25: 0, avgScore: 0, minScore: Infinity, maxScore: 0 }));
+    const rng = mkRng(99);
+
+    const results = lineups.map(() => ({
+      wins: 0, top10: 0, top25: 0, totalScore: 0, minScore: 999, maxScore: 0,
+    }));
 
     for (let sim = 0; sim < NUM_SIMS; sim++) {
-      // Score your lineups
-      const yourScores = lineups.map(lu => scoreLine(lu.players, rng));
+      // Score each of your lineups with realistic variance
+      const yourScores = lineups.map(lu => {
+        return lu.players.reduce((sum: number, p: any) => {
+          const base = p.proj_fpts || 0;
+          const std = p.position === 'SP' ? base * 0.35 : base * 0.28;
+          // Box-Muller for normal distribution
+          const u1 = Math.max(1e-10, rng());
+          const u2 = rng();
+          const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+          return sum + Math.max(0, base + z * std);
+        }, 0);
+      });
 
-      // Generate field scores — use player pool to build realistic distribution
-      const fieldScores: number[] = [];
+      // Generate field
+      const field: number[] = [];
       for (let i = 0; i < fieldSize; i++) {
-        // Field lineup score: avg ~85-95 FP with ~15 FP std dev
-        const fieldBase = 88 + (rng() - 0.5) * 20;
-        const fieldVar  = (rng() + rng() - 1) * 12;
-        fieldScores.push(fieldBase + fieldVar);
+        const u1 = Math.max(1e-10, rng()); const u2 = rng();
+        const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        field.push(90 + z * 18);
       }
-      fieldScores.sort((a, b) => b - a);
-
-      const top10cutoff  = fieldScores[Math.floor(fieldSize * 0.10)] || 0;
-      const top25cutoff  = fieldScores[Math.floor(fieldSize * 0.25)] || 0;
-      const winCutoff    = fieldScores[0] || 0;
+      field.sort((a, b) => b - a);
 
       yourScores.forEach((score, i) => {
-        results[i].avgScore += score / NUM_SIMS;
-        results[i].minScore  = Math.min(results[i].minScore, score);
-        results[i].maxScore  = Math.max(results[i].maxScore, score);
-        const allScores = [...fieldScores, score].sort((a, b) => b - a);
-        const rank = allScores.indexOf(score) + 1;
-        const pct  = rank / (fieldSize + 1);
-        if (pct <= 0.01) results[i].wins++;
-        if (pct <= 0.10) results[i].top10++;
-        if (pct <= 0.25) results[i].top25++;
+        results[i].totalScore += score;
+        results[i].minScore = Math.min(results[i].minScore, score);
+        results[i].maxScore = Math.max(results[i].maxScore, score);
+        const rank = field.findIndex(f => score > f);
+        const pct = (rank === -1 ? fieldSize : rank) / fieldSize;
+        if (pct < 0.01) results[i].wins++;
+        if (pct < 0.10) results[i].top10++;
+        if (pct < 0.25) results[i].top25++;
       });
     }
 
     return results.map((r, i) => ({
-      lineupIdx:  i,
-      avgScore:   parseFloat(r.avgScore.toFixed(1)),
-      minScore:   parseFloat(r.minScore.toFixed(1)),
-      maxScore:   parseFloat(r.maxScore.toFixed(1)),
-      winPct:     parseFloat((r.wins   / NUM_SIMS * 100).toFixed(1)),
-      top10Pct:   parseFloat((r.top10  / NUM_SIMS * 100).toFixed(1)),
-      top25Pct:   parseFloat((r.top25  / NUM_SIMS * 100).toFixed(1)),
+      lineupIdx: i,
+      avgScore:  parseFloat((r.totalScore / NUM_SIMS).toFixed(1)),
+      minScore:  parseFloat(r.minScore.toFixed(1)),
+      maxScore:  parseFloat(r.maxScore.toFixed(1)),
+      winPct:    parseFloat((r.wins   / NUM_SIMS * 100).toFixed(1)),
+      top10Pct:  parseFloat((r.top10  / NUM_SIMS * 100).toFixed(1)),
+      top25Pct:  parseFloat((r.top25  / NUM_SIMS * 100).toFixed(1)),
     }));
-  }, [players]);
+  }, []);
 
-  return { optimize, simulateContest, SALARY_CAP, SALARY_MIN };
-}
-
-// DK MLB classic slots
-const DK_SLOTS = [
-  { positions: ['SP'],         need: 2 },
-  { positions: ['C', 'C/1B'],  need: 1 },
-  { positions: ['1B', 'C/1B'], need: 1 },
-  { positions: ['2B'],         need: 1 },
-  { positions: ['3B'],         need: 1 },
-  { positions: ['SS'],         need: 1 },
-  { positions: ['OF'],         need: 3 },
-];
-
-function seededRng(seed: number) {
-  let s = seed * 1664525 + 1013904223;
-  return () => {
-    s = (s * 1664525 + 1013904223) & 0x7fffffff;
-    return s / 0x7fffffff;
-  };
-}
-
-function scorePlayer(p: any, mode: string, stackTeam: string | null, rand: () => number, randomness: number): number {
-  let score = p.proj_fpts || 0;
-  const sal  = p.salary || 1;
-  const own  = p.proj_ownership || 0;
-
-  // Value score baseline (pts per $1k) — rewards efficient spend
-  const value = (score / sal) * 1000;
-
-  if (mode === 'gpp') {
-    // GPP: balance raw points + value + low ownership leverage
-    // Penalise chalk heavily — being different wins GPPs
-    const ownPenalty = own > 30 ? 0.75 : own > 20 ? 0.87 : own > 10 ? 0.95 : 1.0;
-    score = (score * 0.6 + value * 0.4) * ownPenalty;
-  } else {
-    // Cash: pure floor — weight raw pts heavily, small value bonus
-    // Penalise very cheap plays that drag salary down
-    const salBonus = sal >= 5000 ? 1.0 : sal >= 4000 ? 0.92 : 0.82;
-    score = (score * 0.75 + value * 0.25) * salBonus;
-  }
-
-  // Stack bonus — prefer batters from stack team
-  if (stackTeam && p.team === stackTeam && p.position !== 'SP') {
-    score *= 1.3;
-  }
-
-  // Randomness for lineup variety
-  if (randomness > 0) {
-    const noise = (rand() - 0.5) * (randomness / 10) * score * 0.4;
-    score += noise;
-  }
-
-  return score;
-}
-
-function buildLineup(
-  pool:            any[],
-  locked:          number[],
-  cap:             number,
-  minSal:          number,
-  seed:            number,
-  stackTeam:       string | null,
-  stackSize:       number,
-  mode:            string,
-  randomness:      number,
-  exposureCounts:  Record<number, number> = {},
-  maxExposure:     number = 100,
-  totalLineups:    number = 1,
-  pitcherOppMap:   Record<string, string> = {},
-): any | null {
-  const rand = seededRng(seed);
-
-  // Build runtime game-pair map: which team faces which pitcher
-  // For each SP in pool, their opponent team = batters from the other team in same game
-  // We derive this by: all teams in pool come in pairs (home/away per game)
-  // SP team X => the other team in that game is X's opponent
-  // Since we don't always have opp field, we build a conflict set:
-  // conflictPairs: Set of "SPteam|batterTeam" strings that should NOT coexist
-  const spTeams = [...new Set(pool.filter(p => p.position === 'SP').map((p: any) => p.team as string))];
-  const batterTeams = [...new Set(pool.filter(p => p.position !== 'SP').map((p: any) => p.team as string))];
-
-  // For each SP team, find their opponent using opp field or pitcherOppMap
-  // If neither available, infer: SP's opponent is a team in batterTeams that isn't SP's own team
-  // and shares a game (we approximate using known slate matchups hardcoded as fallback)
-  const spOppMap: Record<string, string> = { ...pitcherOppMap };
-  for (const sp of pool.filter(p => p.position === 'SP')) {
-    if (!spOppMap[sp.team]) {
-      if (sp.opp) spOppMap[sp.team] = sp.opp;
-    }
-  }
-
-  const isBatterVsPitcher = (batterTeam: string, spTeam: string): boolean => {
-    if (spOppMap[spTeam] && spOppMap[spTeam] === batterTeam) return true;
-    // Reverse check: if batter's opp = sp's team
-    const batterPlayer = pool.find((p: any) => p.team === batterTeam && p.opp === spTeam);
-    if (batterPlayer) return true;
-    return false;
-  };
-
-  const scored = pool
-    .map(p => ({ ...p, _score: scorePlayer(p, mode, stackTeam, rand, randomness) }))
-    .sort((a, b) => b._score - a._score);
-
-  const isLocked = (id: number) => locked.includes(id);
-  const roster: any[] = scored.filter(p => isLocked(p.id));
-  let salUsed = roster.reduce((s: number, p: any) => s + (p.salary || 0), 0);
-
-  const fill = (positions: string[], count: number) => {
-    const have = roster.filter(p => positions.includes(p.position)).length;
-    let need   = count - have;
-
-    for (const p of scored) {
-      if (need <= 0) break;
-      if (!positions.includes(p.position)) continue;
-      if (roster.some(r => r.id === p.id)) continue;
-
-      // ── RULE 1: No batter vs pitcher in same lineup ────────
-      if (p.position !== 'SP') {
-        const blocked = roster
-          .filter(r => r.position === 'SP')
-          .some(sp => isBatterVsPitcher(p.team, sp.team));
-        if (blocked) continue;
-      }
-      if (p.position === 'SP') {
-        const blocked = roster
-          .filter(r => r.position !== 'SP')
-          .some(b => isBatterVsPitcher(b.team, p.team));
-        if (blocked) continue;
-      }
-
-      // ── RULE 2: Max exposure ───────────────────────────────
-      if (maxExposure < 100 && !isLocked(p.id)) {
-        const used    = exposureCounts[p.id] || 0;
-        // Use totalLineups (requested) for the cap — this is intentional
-        // so that 40% of 20 = max 8 appearances regardless of phase
-        const allowed = Math.max(1, Math.floor((maxExposure / 100) * totalLineups));
-        if (used >= allowed) continue;
-      }
-
-      // ── RULE 3: No min-salary filler unless strong proj ───
-      if ((p.salary || 0) <= 4000 && (p.proj_fpts || 0) < 8) continue;
-
-      // ── RULE 4: Stack enforcement ──────────────────────────
-      if (stackTeam && p.position !== 'SP' && positions[0] !== 'SP') {
-        const stackCount    = roster.filter(r => r.team === stackTeam && r.position !== 'SP').length;
-        const haveInSlot    = roster.filter(r => positions.includes(r.position)).length;
-        const stillNeed     = count - haveInSlot;
-        const stackAvail    = scored.filter(c =>
-          positions.includes(c.position) && !roster.some(r => r.id === c.id) && c.team === stackTeam
-        ).length;
-        if (stackCount < stackSize && p.team !== stackTeam && stackAvail >= stillNeed) continue;
-      }
-
-      // ── Salary constraints ─────────────────────────────────
-      const slotsLeft      = 10 - roster.length;
-      const salNeededAfter = (slotsLeft - 1) * 3000;
-      if (salUsed + (p.salary || 0) > cap - salNeededAfter) continue;
-
-      roster.push(p);
-      salUsed += (p.salary || 0);
-      need--;
-    }
-  };
-
-  for (const slot of DK_SLOTS) fill(slot.positions, slot.need);
-
-  if (roster.length < 10) return null;
-
-  const final       = roster.slice(0, 10);
-  const totalSalary = final.reduce((s: number, p: any) => s + (p.salary || 0), 0);
-  if (totalSalary < minSal || totalSalary > cap) return null;
-
-  // Final sanity check: reject if any batter faces any SP in lineup
-  const finalSPs      = final.filter(p => p.position === 'SP');
-  const finalBatters  = final.filter(p => p.position !== 'SP');
-  for (const sp of finalSPs) {
-    for (const b of finalBatters) {
-      if (isBatterVsPitcher(b.team, sp.team)) return null;
-    }
-  }
-
-  const avgOwn = final.reduce((s: number, p: any) => s + (p.proj_ownership || 0), 0) / final.length;
-
-  return {
-    players: final,
-    totalSalary,
-    projFpts:     parseFloat(final.reduce((s: number, p: any) => s + (p.proj_fpts || 0), 0).toFixed(1)),
-    avgOwnership: parseFloat(avgOwn.toFixed(1)),
-  };
+  return { optimize, simulateContest, SALARY_CAP: DK_CAP, SALARY_MIN: DK_MIN };
 }
