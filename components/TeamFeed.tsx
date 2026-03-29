@@ -1,119 +1,182 @@
 'use client';
-// components/TeamFeed.tsx — X/Twitter embed feed
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
-// Top MLB accounts and beat writers to feature
 const FEEDS = [
-  { id: 'underdogmlb',  label: 'Underdog MLB', handle: 'UnderdogMLB',  type: 'account' },
-  { id: 'mlb',          label: 'MLB',          handle: 'MLB',          type: 'account' },
-  { id: 'underdog',     label: 'Underdog',     handle: 'UnderdogNFP',  type: 'account' },
-  { id: 'rotowire',     label: 'RotoWire',     handle: 'RotoWireMLB',  type: 'account' },
-  { id: 'fantasyalarm', label: 'Fantasy Alarm', handle: 'FantasyAlarm', type: 'account' },
-  { id: 'mlbtr',        label: 'MLB Trade Rumors', handle: 'mlbtraderumors', type: 'account' },
-  { id: 'buster',       label: 'Buster Olney', handle: 'Buster_ESPN',  type: 'account' },
-  { id: 'heyman',       label: 'Jon Heyman',   handle: 'JonHeyman',    type: 'account' },
-  { id: 'rosenthal',    label: 'Ken Rosenthal', handle: 'Ken_Rosenthal', type: 'account' },
+  { id: 'UnderdogMLB',     label: 'Underdog MLB' },
+  { id: 'MLB',             label: 'MLB' },
+  { id: 'UnderdogNFP',     label: 'Underdog' },
+  { id: 'RotoWireMLB',     label: 'RotoWire' },
+  { id: 'FantasyAlarm',    label: 'Fantasy Alarm' },
+  { id: 'mlbtraderumors',  label: 'MLBTR' },
+  { id: 'Buster_ESPN',     label: 'Buster Olney' },
+  { id: 'JonHeyman',       label: 'Jon Heyman' },
+  { id: 'Ken_Rosenthal',   label: 'Ken Rosenthal' },
 ];
 
-declare global {
-  interface Window { twttr: any; }
+function timeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m`;
+  if (h < 24) return `${h}h`;
+  return `${d}d`;
 }
 
-function TwitterFeed({ handle }: { handle: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!ref.current) return;
-    ref.current.innerHTML = '';
-
-    const loadWidget = () => {
-      if (window.twttr?.widgets) {
-        window.twttr.widgets.createTimeline(
-          { sourceType: 'profile', screenName: handle },
-          ref.current,
-          {
-            theme: 'dark',
-            chrome: 'noheader nofooter noborders transparent',
-            tweetLimit: 10,
-            dnt: true,
-          }
-        );
-      }
-    };
-
-    if (window.twttr?.widgets) {
-      loadWidget();
-    } else {
-      const script = document.createElement('script');
-      script.src = 'https://platform.twitter.com/widgets.js';
-      script.async = true;
-      script.onload = loadWidget;
-      document.head.appendChild(script);
-    }
-  }, [handle]);
-
+function PostCard({ post, handle }: { post: any; handle: string }) {
   return (
-    <div ref={ref} style={{ minHeight: 400 }}>
-      <div style={{ padding: 40, textAlign: 'center', color: '#334155', fontSize: 13 }}>
-        Loading @{handle}...
+    <a href={post.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', display: 'block' }}>
+      <div style={{
+        padding: '14px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        transition: 'background .15s',
+        cursor: 'pointer',
+      }}
+        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.025)')}
+        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: '50%',
+            background: 'linear-gradient(135deg,#2d0810,#9b1c35)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, fontWeight: 700, color: '#f06070', flexShrink: 0,
+            fontFamily: "'Barlow Condensed',sans-serif",
+          }}>
+            {handle[0].toUpperCase()}
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', lineHeight: 1.2 }}>
+              @{handle}
+            </div>
+            <div style={{ fontSize: 11, color: '#334155' }}>{timeAgo(post.published)}</div>
+          </div>
+          <div style={{ marginLeft: 'auto', color: '#1a1a2e', fontSize: 13 }}>𝕏</div>
+        </div>
+
+        {/* Post text */}
+        <div style={{
+          fontSize: 13, color: '#cbd5e1', lineHeight: 1.55,
+          fontFamily: "'Barlow',sans-serif",
+          wordBreak: 'break-word',
+        }}>
+          {post.text}
+        </div>
       </div>
-    </div>
+    </a>
   );
 }
 
 export default function TeamFeed() {
-  const [active, setActive] = useState('underdogmlb');
-  const current = FEEDS.find(f => f.id === active) || FEEDS[0];
+  const [active, setActive] = useState('UnderdogMLB');
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async (handle: string) => {
+    setLoading(true); setError(''); setPosts([]);
+    try {
+      const res = await fetch(`/api/xfeed?handle=${handle}`);
+      const data = await res.json();
+      if (data.error || !data.items?.length) {
+        setError(`Could not load @${handle} — X may be blocking the feed.`);
+      } else {
+        setPosts(data.items);
+      }
+    } catch {
+      setError('Network error loading feed.');
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(active); }, [active, load]);
 
   return (
     <div>
-      {/* Feed selector tabs */}
+      {/* Feed tabs */}
       <div style={{
         display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16,
         paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.06)',
       }}>
         {FEEDS.map(f => (
           <button key={f.id} onClick={() => setActive(f.id)} style={{
-            padding: '5px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
-            fontFamily: "'Barlow Condensed',sans-serif", letterSpacing: '.03em',
+            padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
+            fontSize: 12, fontWeight: 600,
+            fontFamily: "'Barlow Condensed',sans-serif",
             border: `1px solid ${active === f.id ? 'rgba(196,30,58,0.5)' : 'rgba(255,255,255,0.08)'}`,
             background: active === f.id ? 'rgba(196,30,58,0.12)' : 'transparent',
             color: active === f.id ? '#f06070' : '#64748b',
             transition: 'all .15s',
           }}>
-            @{f.handle}
+            @{f.id}
           </button>
         ))}
       </div>
 
-      {/* Active feed label */}
-      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          padding: '4px 12px', borderRadius: 20,
-          background: 'rgba(29,161,242,0.08)', border: '1px solid rgba(29,161,242,0.2)',
-          color: '#1da1f2', fontSize: 12, fontWeight: 700,
-          fontFamily: "'Barlow Condensed',sans-serif",
-        }}>
-          𝕏 @{current.handle}
-        </div>
-        <span style={{ fontSize: 11, color: '#334155' }}>· live feed</span>
-      </div>
-
-      {/* Twitter embed */}
+      {/* Feed container */}
       <div style={{
-        background: '#0a0a0f',
-        border: '1px solid rgba(255,255,255,0.06)',
+        background: '#0d0d14',
+        border: '1px solid rgba(255,255,255,0.07)',
         borderRadius: 10,
-        overflow: 'hidden',
-        maxHeight: 700,
+        maxHeight: 680,
         overflowY: 'auto',
+        // Custom scrollbar
+        scrollbarWidth: 'thin',
+        scrollbarColor: 'rgba(196,30,58,0.4) transparent',
       }}>
-        <TwitterFeed key={current.handle} handle={current.handle} />
-      </div>
+        <style>{`
+          .xfeed-scroll::-webkit-scrollbar { width: 4px; }
+          .xfeed-scroll::-webkit-scrollbar-track { background: transparent; }
+          .xfeed-scroll::-webkit-scrollbar-thumb { background: rgba(196,30,58,0.4); border-radius: 4px; }
+          .xfeed-scroll::-webkit-scrollbar-thumb:hover { background: rgba(196,30,58,0.7); }
+        `}</style>
 
-      <div style={{ marginTop: 8, fontSize: 11, color: '#1e293b', textAlign: 'center' }}>
-        Powered by X · For entertainment purposes only
+        {/* Feed header */}
+        <div style={{
+          padding: '12px 16px',
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          display: 'flex', alignItems: 'center', gap: 8,
+          position: 'sticky', top: 0, background: '#0d0d14', zIndex: 1,
+        }}>
+          <span style={{ fontSize: 14, color: '#1a8cd8' }}>𝕏</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>@{active}</span>
+          {loading && <span style={{ fontSize: 11, color: '#334155', marginLeft: 4 }}>loading...</span>}
+          <button onClick={() => load(active)} style={{
+            marginLeft: 'auto', background: 'none', border: 'none',
+            color: '#334155', cursor: 'pointer', fontSize: 14, padding: '2px 6px',
+          }} title="Refresh">↻</button>
+        </div>
+
+        {loading && (
+          <div style={{ padding: 40, textAlign: 'center', color: '#334155', fontSize: 13 }}>
+            Fetching posts from @{active}...
+          </div>
+        )}
+
+        {!loading && error && (
+          <div style={{ padding: 32, textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>{error}</div>
+            <a href={`https://twitter.com/${active}`} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: 12, color: '#1a8cd8', textDecoration: 'none' }}>
+              View @{active} on X →
+            </a>
+          </div>
+        )}
+
+        {!loading && !error && posts.map(post => (
+          <PostCard key={post.id} post={post} handle={active} />
+        ))}
+
+        {!loading && !error && posts.length > 0 && (
+          <div style={{ padding: '12px 16px', textAlign: 'center' }}>
+            <a href={`https://twitter.com/${active}`} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: 12, color: '#334155', textDecoration: 'none' }}>
+              View all on X →
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );
