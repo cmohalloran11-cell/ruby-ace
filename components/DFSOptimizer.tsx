@@ -15,20 +15,29 @@ function downloadCSV(lineups: any[][], contestInfo?: {entryIds: string[], name: 
   if (!lineups.length) return;
   const header = 'Entry ID,Contest Name,Contest ID,Entry Fee,P,P,C,1B,2B,3B,SS,OF,OF,OF';
   const rows = lineups.map((roster, i) => {
-    const byPos: Record<string, any[]> = { SP:[], C:[], '1B':[], '2B':[], '3B':[], SS:[], OF:[] };
-    for (const p of roster) { if (byPos[p.position]) byPos[p.position].push(p); }
-    const slots = [byPos.SP[0],byPos.SP[1],byPos.C[0],byPos['1B'][0],byPos['2B'][0],
-                   byPos['3B'][0],byPos.SS[0],byPos.OF[0],byPos.OF[1],byPos.OF[2]];
-    const players = slots.map(p => p ? (p.dk_name_id?.trim() || p.player_name) : '').join(',');
-    // If contest info provided, fill entry metadata; otherwise leave blank
-    if (contestInfo?.entryIds?.[i]) {
-      return `${contestInfo.entryIds[i]},${contestInfo.name},${contestInfo.id},${contestInfo.fee},${players}`;
-    }
-    return `,,,,${players}`;
+    // Sort into DK slot order: SP, SP, C, 1B, 2B, 3B, SS, OF, OF, OF
+    const sps  = roster.filter((p:any) => p.position === 'SP');
+    const cs   = roster.filter((p:any) => p.position === 'C');
+    const obs1 = roster.filter((p:any) => p.position === '1B');
+    const obs2 = roster.filter((p:any) => p.position === '2B');
+    const obs3 = roster.filter((p:any) => p.position === '3B');
+    const sss  = roster.filter((p:any) => p.position === 'SS');
+    const ofs  = roster.filter((p:any) => p.position === 'OF');
+    const ordered = [sps[0],sps[1],cs[0],obs1[0],obs2[0],obs3[0],sss[0],ofs[0],ofs[1],ofs[2]];
+    const playerCells = ordered.map((p:any) => {
+      if (!p) return '';
+      const nid = p.dk_name_id?.trim();
+      return nid || p.player_name || '';
+    });
+    // Exactly 14 columns: 4 meta + 10 players
+    const meta = contestInfo?.entryIds?.[i]
+      ? [contestInfo.entryIds[i], contestInfo.name, contestInfo.id, contestInfo.fee]
+      : ['', '', '', ''];
+    return [...meta, ...playerCells].join(',');
   });
-  const csv = [header,...rows].join('\r\n');
+  const csv = [header, ...rows].join('\r\n');
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
   a.download = 'lineups.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
@@ -52,7 +61,7 @@ const TAB = (active: boolean) => ({
   display:'flex' as const, flexDirection:'column' as const, alignItems:'center' as const,
   gap:4, padding:'10px 0', cursor:'pointer', fontSize:12, flex:1,
   color: active ? '#fff' : '#64748b',
-  background: active ? '#2dd4bf' : 'transparent',
+  background: active ? '#c41e3a' : 'transparent',
   border:'none', borderRadius:8, fontWeight: active ? 700 : 400,
 });
 
@@ -60,7 +69,7 @@ function Toggle({val, onClick}: {val:boolean, onClick:()=>void}) {
   return (
     <button onClick={onClick} style={{
       width:44,height:24,borderRadius:12,border:'none',cursor:'pointer',
-      background:val?'#2dd4bf':'rgba(255,255,255,0.15)',position:'relative',transition:'background .2s',flexShrink:0
+      background:val?'#c41e3a':'rgba(255,255,255,0.15)',position:'relative',transition:'background .2s',flexShrink:0
     }}>
       <div style={{position:'absolute',top:3,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s',left:val?23:3}} />
     </button>
@@ -72,10 +81,10 @@ function Slider({value,min,max,onChange,label}:{value:number,min:number,max:numb
     <div style={{marginBottom:12}}>
       <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
         <span style={{fontSize:12,color:'#94a3b8'}}>{label}</span>
-        <span style={{fontSize:12,color:'#2dd4bf',fontWeight:700}}>{value}</span>
+        <span style={{fontSize:12,color:'#c41e3a',fontWeight:700}}>{value}</span>
       </div>
       <input type="range" min={min} max={max} value={value} onChange={e=>onChange(+e.target.value)}
-        style={{width:'100%',accentColor:'#2dd4bf'}}/>
+        style={{width:'100%',accentColor:'#c41e3a'}}/>
       <div style={{display:'flex',justifyContent:'space-between'}}>
         <span style={{fontSize:10,color:'#475569'}}>{min}</span>
         <span style={{fontSize:10,color:'#475569'}}>{max}</span>
@@ -202,8 +211,8 @@ export default function DFSOptimizer() {
                   .map((p:any)=><option key={p.id} value={p.id}>{p.player_name} ({p.team})</option>)}
               </select>
               <div style={{display:'flex',alignItems:'center',gap:6}}>
-                <input type="range" min={0} max={100} defaultValue={100} style={{flex:1,accentColor:'#2dd4bf'}}/>
-                <span style={{fontSize:12,color:'#2dd4bf',fontWeight:700,width:38,textAlign:'right' as const}}>100%</span>
+                <input type="range" min={0} max={100} defaultValue={100} style={{flex:1,accentColor:'#c41e3a'}}/>
+                <span style={{fontSize:12,color:'#c41e3a',fontWeight:700,width:38,textAlign:'right' as const}}>100%</span>
               </div>
             </div>
           ))}
@@ -240,9 +249,9 @@ export default function DFSOptimizer() {
             {['4-3 Team Stack','4-4 Team Stack'].map(k=>(
               <button key={k} onClick={()=>{const n=new Set(selectedStacks);n.has(k)?n.delete(k):n.add(k);setStacks(n);}} style={{
                 padding:'8px 20px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:600,
-                border:`1px solid ${selectedStacks.has(k)?'#2dd4bf':'rgba(255,255,255,0.12)'}`,
-                background:selectedStacks.has(k)?'rgba(45,212,191,0.1)':'transparent',
-                color:selectedStacks.has(k)?'#2dd4bf':'#94a3b8',
+                border:`1px solid ${selectedStacks.has(k)?'#c41e3a':'rgba(255,255,255,0.12)'}`,
+                background:selectedStacks.has(k)?'rgba(196,30,58,0.1)':'transparent',
+                color:selectedStacks.has(k)?'#c41e3a':'#94a3b8',
               }}>{k}</button>
             ))}
           </div>
@@ -250,24 +259,24 @@ export default function DFSOptimizer() {
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:20}}>
             {Object.keys(COMBO_MAP).filter(k=>!['4-3 Team Stack','4-4 Team Stack'].includes(k)).map(k=>(
               <label key={k} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:8,cursor:'pointer',
-                border:`1px solid ${selectedStacks.has(k)?'rgba(45,212,191,0.4)':'rgba(255,255,255,0.06)'}`,
-                background:selectedStacks.has(k)?'rgba(45,212,191,0.06)':'transparent'}}>
+                border:`1px solid ${selectedStacks.has(k)?'rgba(196,30,58,0.4)':'rgba(255,255,255,0.06)'}`,
+                background:selectedStacks.has(k)?'rgba(196,30,58,0.06)':'transparent'}}>
                 <input type="checkbox" checked={selectedStacks.has(k)}
                   onChange={()=>{const n=new Set(selectedStacks);n.has(k)?n.delete(k):n.add(k);setStacks(n);}}
-                  style={{accentColor:'#2dd4bf'}}/>
-                <span style={{fontSize:12,fontWeight:700,color:selectedStacks.has(k)?'#2dd4bf':'#64748b'}}>{k}</span>
+                  style={{accentColor:'#c41e3a'}}/>
+                <span style={{fontSize:12,fontWeight:700,color:selectedStacks.has(k)?'#c41e3a':'#64748b'}}>{k}</span>
               </label>
             ))}
           </div>
           <div style={{fontSize:13,fontWeight:600,color:'#94a3b8',marginBottom:10}}>Per-Team Player Limits</div>
           <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',background:'rgba(255,255,255,0.04)',borderRadius:8}}>
-            <span style={{fontSize:13,flex:1}}>Limit to <strong style={{color:'#2dd4bf'}}>{maxPerTeam}</strong> offensive players from any given team.</span>
+            <span style={{fontSize:13,flex:1}}>Limit to <strong style={{color:'#c41e3a'}}>{maxPerTeam}</strong> offensive players from any given team.</span>
             <div style={{display:'flex',gap:6}}>
               {[3,4,5,6,7].map(n=>(
                 <button key={n} style={{width:32,height:32,borderRadius:6,
-                  border:`1px solid ${n===maxPerTeam?'#2dd4bf':'rgba(255,255,255,0.1)'}`,
-                  background:n===maxPerTeam?'rgba(45,212,191,0.1)':'transparent',
-                  color:n===maxPerTeam?'#2dd4bf':'#64748b',cursor:'pointer',fontSize:12,fontWeight:700}}>{n}</button>
+                  border:`1px solid ${n===maxPerTeam?'#c41e3a':'rgba(255,255,255,0.1)'}`,
+                  background:n===maxPerTeam?'rgba(196,30,58,0.1)':'transparent',
+                  color:n===maxPerTeam?'#c41e3a':'#64748b',cursor:'pointer',fontSize:12,fontWeight:700}}>{n}</button>
               ))}
             </div>
           </div>
@@ -290,7 +299,7 @@ export default function DFSOptimizer() {
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(255,255,255,0.12)',background:'transparent',color:'#94a3b8',cursor:'pointer',fontSize:13}}>Edit Projections</button>
-            <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(45,212,191,0.4)',background:'rgba(45,212,191,0.06)',color:'#2dd4bf',cursor:'pointer',fontSize:13,fontWeight:600}}>↑ Upload Projections</button>
+            <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(196,30,58,0.4)',background:'rgba(196,30,58,0.06)',color:'#c41e3a',cursor:'pointer',fontSize:13,fontWeight:600}}>↑ Upload Projections</button>
           </div>
           {players.length>0 && <div style={{marginTop:10,fontSize:12,color:'#475569',textAlign:'center' as const}}>{players.length} players loaded</div>}
         </div>
@@ -338,7 +347,7 @@ export default function DFSOptimizer() {
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
               <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(255,255,255,0.12)',background:'transparent',color:'#94a3b8',cursor:'pointer',fontSize:13}}>Edit Ownership</button>
-              <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(45,212,191,0.4)',background:'rgba(45,212,191,0.06)',color:'#2dd4bf',cursor:'pointer',fontSize:13,fontWeight:600}}>↑ Upload Ownership Data</button>
+              <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(196,30,58,0.4)',background:'rgba(196,30,58,0.06)',color:'#c41e3a',cursor:'pointer',fontSize:13,fontWeight:600}}>↑ Upload Ownership Data</button>
             </div>
           </div>
           {/* Player pool */}
@@ -374,10 +383,10 @@ export default function DFSOptimizer() {
                     {filteredPlayers.slice(0,150).map((p:any)=>{
                       const isL=locked.has(p.id), isX=excluded.has(p.id);
                       return (
-                        <tr key={p.id} style={{borderBottom:'1px solid rgba(255,255,255,0.04)',opacity:isX?0.3:1,background:isL?'rgba(45,212,191,0.04)':''}}>
+                        <tr key={p.id} style={{borderBottom:'1px solid rgba(255,255,255,0.04)',opacity:isX?0.3:1,background:isL?'rgba(196,30,58,0.04)':''}}>
                           <td style={{padding:'5px 8px'}}>
                             <button onClick={()=>{const n=new Set(locked);n.has(p.id)?n.delete(p.id):n.add(p.id);setLocked(n);}}
-                              style={{width:20,height:20,borderRadius:4,border:`1px solid ${isL?'#2dd4bf':'rgba(255,255,255,0.1)'}`,background:isL?'rgba(45,212,191,0.2)':'transparent',cursor:'pointer',fontSize:10,color:isL?'#2dd4bf':'#475569'}}>
+                              style={{width:20,height:20,borderRadius:4,border:`1px solid ${isL?'#c41e3a':'rgba(255,255,255,0.1)'}`,background:isL?'rgba(196,30,58,0.2)':'transparent',cursor:'pointer',fontSize:10,color:isL?'#c41e3a':'#475569'}}>
                               {isL?'✓':'+'}
                             </button>
                           </td>
@@ -412,8 +421,8 @@ export default function DFSOptimizer() {
               <button onClick={()=>setShowResults(false)} style={{marginLeft:'auto',background:'none',border:'none',color:'#94a3b8',cursor:'pointer',fontSize:22}}>×</button>
             </div>
             {/* DKEntries upload for auto-fill */}
-            <div style={{marginBottom:12,padding:'10px 14px',background:'rgba(45,212,191,0.04)',border:'1px solid rgba(45,212,191,0.15)',borderRadius:8}}>
-              <div style={{fontSize:12,color:'#2dd4bf',fontWeight:600,marginBottom:6}}>
+            <div style={{marginBottom:12,padding:'10px 14px',background:'rgba(196,30,58,0.04)',border:'1px solid rgba(196,30,58,0.15)',borderRadius:8}}>
+              <div style={{fontSize:12,color:'#c41e3a',fontWeight:600,marginBottom:6}}>
                 Step 1: Upload your DKEntries.csv <span style={{color:'#475569',fontWeight:400}}>(from DK → Lineups → Edit Entries → Download)</span>
               </div>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -442,7 +451,7 @@ export default function DFSOptimizer() {
             <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
               <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:8,padding:'6px 12px',flex:1}}>
                 <span style={{fontSize:13,color:'#94a3b8'}}>{contestInfo ? '✓ Ready to upload directly to DK' : 'lineups.csv (paste entry IDs manually)'}</span>
-                <button onClick={()=>downloadCSV(lineups, contestInfo || undefined)} style={{marginLeft:'auto',background:'rgba(45,212,191,0.15)',border:'1px solid rgba(45,212,191,0.3)',borderRadius:6,color:'#2dd4bf',cursor:'pointer',padding:'4px 14px',fontSize:13,fontWeight:600}}>
+                <button onClick={()=>downloadCSV(lineups, contestInfo || undefined)} style={{marginLeft:'auto',background:'rgba(196,30,58,0.15)',border:'1px solid rgba(196,30,58,0.3)',borderRadius:6,color:'#c41e3a',cursor:'pointer',padding:'4px 14px',fontSize:13,fontWeight:600}}>
                   Step 2: ↓ Download
                 </button>
               </div>
@@ -452,8 +461,8 @@ export default function DFSOptimizer() {
               {(['lineups','playerExp','teamExp'] as const).map(v=>(
                 <button key={v} onClick={()=>setView(v)} style={{
                   padding:'6px 18px',borderRadius:8,border:'none',cursor:'pointer',fontSize:13,
-                  background:view===v?'rgba(45,212,191,0.15)':'transparent',
-                  color:view===v?'#2dd4bf':'#64748b',fontWeight:view===v?600:400}}>
+                  background:view===v?'rgba(196,30,58,0.15)':'transparent',
+                  color:view===v?'#c41e3a':'#64748b',fontWeight:view===v?600:400}}>
                   {v==='lineups'?'Lineups':v==='playerExp'?'Player Exp.':'Team Exp.'}
                 </button>
               ))}
@@ -486,7 +495,7 @@ export default function DFSOptimizer() {
                               {p?<>{p.player_name} <span style={{color:'#475569'}}>({p.team})</span></>:'—'}
                             </td>
                           ))}
-                          <td style={{padding:'6px 10px',textAlign:'right' as const,fontWeight:700,color:'#2dd4bf'}}>{proj.toFixed(1)}</td>
+                          <td style={{padding:'6px 10px',textAlign:'right' as const,fontWeight:700,color:'#c41e3a'}}>{proj.toFixed(1)}</td>
                         </tr>
                       );
                     })}
@@ -508,7 +517,7 @@ export default function DFSOptimizer() {
                     <tr key={p.id} style={{borderBottom:'1px solid rgba(255,255,255,0.04)'}}>
                       <td style={{padding:'8px 12px',fontWeight:500}}>{p.player_name}</td>
                       <td style={{padding:'8px 12px',color:'#94a3b8'}}>{p.position}</td>
-                      <td style={{padding:'8px 12px',color:p.expPct>defaultMaxExp+5?'#ef4444':'#2dd4bf',fontWeight:700}}>{p.expPct}%</td>
+                      <td style={{padding:'8px 12px',color:p.expPct>defaultMaxExp+5?'#ef4444':'#c41e3a',fontWeight:700}}>{p.expPct}%</td>
                       <td style={{padding:'8px 12px',color:'#60a5fa'}}>{(p.proj_fpts||0).toFixed(1)}</td>
                     </tr>
                   ))}
@@ -528,7 +537,7 @@ export default function DFSOptimizer() {
                   {teamExp.map((t:any)=>(
                     <tr key={t.team} style={{borderBottom:'1px solid rgba(255,255,255,0.04)'}}>
                       <td style={{padding:'8px 12px',fontWeight:600}}>{t.team}</td>
-                      <td style={{padding:'8px 12px',color:'#2dd4bf',fontWeight:700}}>{t.expPct}%</td>
+                      <td style={{padding:'8px 12px',color:'#c41e3a',fontWeight:700}}>{t.expPct}%</td>
                     </tr>
                   ))}
                 </tbody>
@@ -554,15 +563,15 @@ export default function DFSOptimizer() {
           <button onClick={generate} disabled={generating||players.length===0} style={{
             padding:'12px 44px',borderRadius:8,border:'none',
             cursor:generating||players.length===0?'not-allowed':'pointer',
-            background:generating||players.length===0?'#334155':'linear-gradient(135deg,#2dd4bf,#0891b2)',
+            background:generating||players.length===0?'#334155':'linear-gradient(135deg,#c41e3a,#a01830)',
             color:'white',fontSize:15,fontWeight:700,opacity:generating||players.length===0?0.6:1}}>
             {generating?'Generating...':'Generate Lineups'}
           </button>
           <button onClick={()=>lineups.length>0&&setShowResults(true)} style={{
             padding:'12px 44px',borderRadius:8,
-            border:`1px solid ${lineups.length>0?'rgba(45,212,191,0.4)':'rgba(255,255,255,0.1)'}`,
-            background:lineups.length>0?'rgba(45,212,191,0.08)':'transparent',
-            color:lineups.length>0?'#2dd4bf':'#475569',fontSize:15,fontWeight:700,cursor:lineups.length>0?'pointer':'default'}}>
+            border:`1px solid ${lineups.length>0?'rgba(196,30,58,0.4)':'rgba(255,255,255,0.1)'}`,
+            background:lineups.length>0?'rgba(196,30,58,0.08)':'transparent',
+            color:lineups.length>0?'#c41e3a':'#475569',fontSize:15,fontWeight:700,cursor:lineups.length>0?'pointer':'default'}}>
             View Lineups{lineups.length>0?` (${lineups.length})`:''}
           </button>
         </div>
