@@ -115,7 +115,13 @@ export async function GET(request: NextRequest) {
   try {
     await requireAdmin(request);
     const sb = getServiceSupabase();
-    const date = request.nextUrl.searchParams.get('date') || new Date().toISOString().split('T')[0];
+    const dateParam = request.nextUrl.searchParams.get('date');
+    let date = dateParam;
+    if (!date) {
+      const { data: latest } = await sb.from('projections')
+        .select('slate_date').order('slate_date', { ascending: false }).limit(1).single();
+      date = latest?.slate_date || new Date().toISOString().split('T')[0];
+    }
     const { data, error } = await sb
       .from('projections').select('*').eq('slate_date', date)
       .order('proj_fpts', { ascending: false });
@@ -187,7 +193,7 @@ export async function POST(request: NextRequest) {
       } else {
         // theBatX or generic projection CSV
         const rows = records.map(r => mapTheBatX(r, 'upload', slateDate)).filter(Boolean) as any[];
-        if (!rows.length) return NextResponse.json({ error: `No valid players found. Detected columns: ${sampleKeys}. Need NAME and TOMORROW_DK columns.`, inserted: 0 });
+        if (!rows.length) return NextResponse.json({ error: `No valid players found. Detected columns: ${sampleKeys}. Need NAME (or PLAYER) and FPTS columns with salary > 0.`, inserted: 0 });
 
         // Upsert — merge with existing DK salary data
         let inserted = 0;
@@ -209,20 +215,28 @@ export async function POST(request: NextRequest) {
             if (ex) {
               // Update projection data, preserve existing salary and position if not in this CSV
               await sb.from('projections').update({
-                proj_fpts: row.proj_fpts,
-                proj_ownership: row.proj_ownership,
-                proj_hr: row.proj_hr,
-                proj_rbi: row.proj_rbi,
-                proj_r: row.proj_r,
-                proj_sb: row.proj_sb,
-                proj_h: row.proj_h,
-                proj_k: row.proj_k,
-                proj_ip: row.proj_ip,
-                proj_er: row.proj_er,
-                proj_pitching_k: row.proj_pitching_k,
-                proj_bb: row.proj_bb,
-                team: row.team || ex.team,
-                position: row.position || ex.position,
+                proj_fpts:          row.proj_fpts,
+                proj_ownership:     row.proj_ownership,
+                proj_floor:         row.proj_floor,
+                proj_ceiling:       row.proj_ceiling,
+                lineup_pos:         row.lineup_pos,
+                in_probable_lineup: row.in_probable_lineup,
+                opp:                row.opp || ex.opp,
+                proj_hr:            row.proj_hr,
+                proj_rbi:           row.proj_rbi,
+                proj_r:             row.proj_r,
+                proj_sb:            row.proj_sb,
+                proj_h:             row.proj_h,
+                proj_k:             row.proj_k,
+                proj_ip:            row.proj_ip,
+                proj_er:            row.proj_er,
+                proj_pitching_k:    row.proj_pitching_k,
+                proj_bb:            row.proj_bb,
+                team:               row.team || ex.team,
+                position:           row.position || ex.position,
+                // Use salary from CSV if present, otherwise keep existing
+                salary:             row.salary > 0 ? row.salary : ex.salary,
+                dk_name_id:         row.dk_name_id || ex.dk_name_id,
                 source: 'upload',
               }).eq('id', ex.id);
             } else {
