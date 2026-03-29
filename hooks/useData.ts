@@ -412,9 +412,7 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
       const minLeft = minSalaryNeeded(roster.length); // future slots minimum
       if (salAfter + minLeft > cap) continue;
 
-      // Floor reachability
-      const slotsAfter = 10 - roster.length - 1;
-      if (slotsAfter > 0 && salAfter + slotsAfter * 9000 < minSal) continue;
+      // No floor reachability check — DK has no hard minimum salary requirement
 
       roster.push(p);
       usedIds.add(p.id);
@@ -439,7 +437,7 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
   if (roster.length !== 10) return null;
   const total = roster.reduce((s, p) => s + (p.salary || 0), 0);
   if (rngSeed <= 5) console.log('[buildOne] seed=' + rngSeed + ' roster=' + roster.length + ' total=$' + total + ' floor=' + minSal + ' cap=' + cap + ' pass=' + (total >= minSal && total <= cap));
-  if (total < minSal || total > cap) return null;
+  if (total > cap) return null; // only enforce hard cap
   return roster;
 }
 
