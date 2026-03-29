@@ -7,7 +7,6 @@ import PickemPredictor from '@/components/PickemPredictor';
 import AdminPanel from '@/components/AdminPanel';
 import AuthModal from '@/components/AuthModal';
 import UserSettings from '@/components/UserSettings';
-import ESPNLeague from '@/components/ESPNLeague';
 import TeamFeed from '@/components/TeamFeed';
 
 const MAIN_TABS = [
@@ -18,7 +17,7 @@ const MAIN_TABS = [
 
 export default function HomePage() {
   const { user, isAdmin, logout, loading } = useAuth();
-  const [tab, setTab] = useState('fantasy');
+  const [tab, setTab] = useState('dfs');
   const [showAuth, setShowAuth] = useState(false);
   const [authTab, setAuthTab] = useState<'login'|'register'>('login');
   const [showSettings, setShowSettings] = useState(false);
