@@ -328,11 +328,16 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
 
   const getComboAllowed = (team: string): number => {
     if (!useCombo) return 10;
+
     const idx = assignedGroups.indexOf(team);
-    if (idx >= 0) return stackCombo![idx];
+    if (idx >= 0) return stackCombo![idx]; // assigned team — use its minimum target
+
     const open = assignedGroups.findIndex(g => g === null);
-    if (open >= 0) return stackCombo![open];
-    return 0;
+    if (open >= 0) return stackCombo![open]; // unassigned — assign to next group
+
+    // All combo groups assigned — team isn't in any group
+    // Still allow players from any team (combo = minimums, not maximums)
+    return 10;
   };
 
   const assignGroup = (team: string) => {
