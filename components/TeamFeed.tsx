@@ -1,95 +1,120 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
-import { LoadingSkeleton, EmptyState } from './ui/shared';
+// components/TeamFeed.tsx — X/Twitter embed feed
+import { useState, useEffect, useRef } from 'react';
 
-const TEAMS = ['ALL','NYY','BOS','LAD','SF','HOU','TEX','ATL','PHI','NYM','CHC','MIL','SD','STL','CIN','PIT','COL','ARI','SEA','DET','CLE','MIN','KC','CWS','TOR','BAL','TB','MIA','WSH','OAK','LAA'];
-const TAGS = ['all','Injury','Lineup','Rotation','General'];
-const TAG_COLORS: Record<string,{bg:string;color:string;border:string}> = {
-  Injury:   { bg:'rgba(196,30,58,0.15)',  color:'#f06070', border:'rgba(196,30,58,0.3)' },
-  Lineup:   { bg:'rgba(59,130,246,0.15)', color:'#60a5fa', border:'rgba(59,130,246,0.3)' },
-  Rotation: { bg:'rgba(139,92,246,0.15)', color:'#a78bfa', border:'rgba(139,92,246,0.3)' },
-  General:  { bg:'rgba(255,255,255,0.06)', color:'#94a3b8', border:'rgba(255,255,255,0.1)' },
-};
+// Top MLB accounts and beat writers to feature
+const FEEDS = [
+  { id: 'underdogmlb',  label: 'Underdog MLB', handle: 'UnderdogMLB',  type: 'account' },
+  { id: 'mlb',          label: 'MLB',          handle: 'MLB',          type: 'account' },
+  { id: 'underdog',     label: 'Underdog',     handle: 'UnderdogNFP',  type: 'account' },
+  { id: 'rotowire',     label: 'RotoWire',     handle: 'RotoWireMLB',  type: 'account' },
+  { id: 'fantasyalarm', label: 'Fantasy Alarm', handle: 'FantasyAlarm', type: 'account' },
+  { id: 'mlbtr',        label: 'MLB Trade Rumors', handle: 'mlbtraderumors', type: 'account' },
+  { id: 'buster',       label: 'Buster Olney', handle: 'Buster_ESPN',  type: 'account' },
+  { id: 'heyman',       label: 'Jon Heyman',   handle: 'JonHeyman',    type: 'account' },
+  { id: 'rosenthal',    label: 'Ken Rosenthal', handle: 'Ken_Rosenthal', type: 'account' },
+];
 
-function TagBadge({ tag }: { tag: string }) {
-  const s = TAG_COLORS[tag] || TAG_COLORS.General;
+declare global {
+  interface Window { twttr: any; }
+}
+
+function TwitterFeed({ handle }: { handle: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    ref.current.innerHTML = '';
+
+    const loadWidget = () => {
+      if (window.twttr?.widgets) {
+        window.twttr.widgets.createTimeline(
+          { sourceType: 'profile', screenName: handle },
+          ref.current,
+          {
+            theme: 'dark',
+            chrome: 'noheader nofooter noborders transparent',
+            tweetLimit: 10,
+            dnt: true,
+          }
+        );
+      }
+    };
+
+    if (window.twttr?.widgets) {
+      loadWidget();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://platform.twitter.com/widgets.js';
+      script.async = true;
+      script.onload = loadWidget;
+      document.head.appendChild(script);
+    }
+  }, [handle]);
+
   return (
-    <span style={{ display:'inline-flex', alignItems:'center', padding:'2px 8px', borderRadius:20, fontSize:10, fontWeight:700, fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:'.06em', background:s.bg, color:s.color, border:`1px solid ${s.border}` }}>{tag}</span>
+    <div ref={ref} style={{ minHeight: 400 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: '#334155', fontSize: 13 }}>
+        Loading @{handle}...
+      </div>
+    </div>
   );
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(mins / 60);
-  const days = Math.floor(hours / 24);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${days}d ago`;
-}
-
 export default function TeamFeed() {
-  const [items, setItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [team, setTeam] = useState('ALL');
-  const [tag, setTag] = useState('all');
-  const [search, setSearch] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/feed?team=${team}&tag=${tag}&limit=40`);
-      const data = await res.json();
-      setItems(Array.isArray(data) ? data : []);
-    } catch { setItems([]); }
-    finally { setLoading(false); }
-  }, [team, tag]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const filtered = search
-    ? items.filter(i => i.title?.toLowerCase().includes(search.toLowerCase()) || i.summary?.toLowerCase().includes(search.toLowerCase()))
-    : items;
+  const [active, setActive] = useState('underdogmlb');
+  const current = FEEDS.find(f => f.id === active) || FEEDS[0];
 
   return (
     <div>
-      <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
-        <input className="input-field" style={{ maxWidth:200, padding:'6px 12px', fontSize:13 }} placeholder="Search news..." value={search} onChange={e => setSearch(e.target.value)} />
-        <select className="input-field" style={{ width:110 }} value={team} onChange={e => { setTeam(e.target.value); }}>
-          {TEAMS.map(t => <option key={t} value={t}>{t === 'ALL' ? 'All Teams' : t}</option>)}
-        </select>
-        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-          {TAGS.map(t => {
-            const active = tag === t;
-            const s = TAG_COLORS[t] || TAG_COLORS.General;
-            return <button key={t} onClick={() => setTag(t)} style={{ padding:'4px 12px', borderRadius:20, border:`1px solid ${active ? s.border : 'rgba(255,255,255,0.1)'}`, background: active ? s.bg : 'transparent', color: active ? s.color : '#64748b', cursor:'pointer', fontSize:12, fontFamily:"'Barlow Condensed',sans-serif", fontWeight:600, transition:'all .15s' }}>{t === 'all' ? 'All' : t}</button>;
-          })}
-        </div>
-        <button className="btn-outline" style={{ fontSize:12, marginLeft:'auto' }} onClick={load}>↻ Refresh</button>
-        {!loading && <span style={{ fontSize:12, color:'#475569' }}>{filtered.length} items</span>}
+      {/* Feed selector tabs */}
+      <div style={{
+        display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16,
+        paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.06)',
+      }}>
+        {FEEDS.map(f => (
+          <button key={f.id} onClick={() => setActive(f.id)} style={{
+            padding: '5px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            fontFamily: "'Barlow Condensed',sans-serif", letterSpacing: '.03em',
+            border: `1px solid ${active === f.id ? 'rgba(196,30,58,0.5)' : 'rgba(255,255,255,0.08)'}`,
+            background: active === f.id ? 'rgba(196,30,58,0.12)' : 'transparent',
+            color: active === f.id ? '#f06070' : '#64748b',
+            transition: 'all .15s',
+          }}>
+            @{f.handle}
+          </button>
+        ))}
       </div>
 
-      {loading ? <LoadingSkeleton rows={6} cols={2} /> : filtered.length === 0 ? <EmptyState message="No news found. Try changing your filters or refreshing." /> : (
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {filtered.map((item: any) => (
-            <div key={item.id} className="card" style={{ padding:'14px 16px' }}>
-              <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
-                {item.image && <img src={item.image} alt="" style={{ width:72, height:54, objectFit:'cover', borderRadius:6, flexShrink:0, border:'1px solid rgba(255,255,255,0.06)' }} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />}
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6, flexWrap:'wrap' }}>
-                    <TagBadge tag={item.tag} />
-                    {item.team && item.team !== 'ALL' && <span style={{ fontSize:10, fontWeight:700, fontFamily:"'Barlow Condensed',sans-serif", color:'#64748b', letterSpacing:'.06em' }}>{item.team}</span>}
-                    <span style={{ fontSize:11, color:'#475569', marginLeft:'auto' }}>{timeAgo(item.published)}</span>
-                  </div>
-                  <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ fontSize:14, fontWeight:500, color:'#e2e8f0', textDecoration:'none', lineHeight:1.4, display:'block', marginBottom:6 }} onMouseOver={e => (e.currentTarget.style.color='#f06070')} onMouseOut={e => (e.currentTarget.style.color='#e2e8f0')}>{item.title}</a>
-                  {item.summary && <div style={{ fontSize:12, color:'#64748b', lineHeight:1.6, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>{item.summary}</div>}
-                </div>
-              </div>
-            </div>
-          ))}
+      {/* Active feed label */}
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '4px 12px', borderRadius: 20,
+          background: 'rgba(29,161,242,0.08)', border: '1px solid rgba(29,161,242,0.2)',
+          color: '#1da1f2', fontSize: 12, fontWeight: 700,
+          fontFamily: "'Barlow Condensed',sans-serif",
+        }}>
+          𝕏 @{current.handle}
         </div>
-      )}
+        <span style={{ fontSize: 11, color: '#334155' }}>· live feed</span>
+      </div>
+
+      {/* Twitter embed */}
+      <div style={{
+        background: '#0a0a0f',
+        border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: 10,
+        overflow: 'hidden',
+        maxHeight: 700,
+        overflowY: 'auto',
+      }}>
+        <TwitterFeed key={current.handle} handle={current.handle} />
+      </div>
+
+      <div style={{ marginTop: 8, fontSize: 11, color: '#1e293b', textAlign: 'center' }}>
+        Powered by X · For entertainment purposes only
+      </div>
     </div>
   );
 }
