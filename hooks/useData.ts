@@ -466,13 +466,17 @@ export function useDFSOptimizer(players: any[]) {
       (maxOwnership === 0 || (p.proj_ownership || 0) <= maxOwnership || locked.includes(p.id))
     );
 
+    // Debug: log pool composition
+    const poolSPs   = pool.filter((p:any) => p.position === 'SP');
+    const poolBats  = pool.filter((p:any) => p.position !== 'SP');
+    const hasSalary = pool.filter((p:any) => (p.salary||0) > 0).length;
+    const positions = [...new Set(pool.map((p:any) => p.position))];
+    console.log('[Optimizer] Pool:', pool.length, 'total |', poolSPs.length, 'SPs |', poolBats.length, 'hitters | salary>0:', hasSalary, '| positions:', positions.sort().join(','));
+    console.log('[Optimizer] Sample player:', pool[0] ? JSON.stringify({name:pool[0].player_name,pos:pool[0].position,sal:pool[0].salary,fpts:pool[0].proj_fpts,opp:pool[0].opp}) : 'none');
     if (pool.length < 10) {
       console.warn('[Optimizer] Pool too small:', pool.length, 'players');
       return [];
     }
-    console.log('[Optimizer] Pool:', pool.length, 'players',
-      '| SPs:', pool.filter((p:any)=>p.position==='SP').length,
-      '| spOppMap will be built from opp fields');
 
     // Build SP→opp map from the pool
     const oppMap: Record<string, string> = {};
