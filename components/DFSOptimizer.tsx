@@ -75,6 +75,7 @@ export default function DFSOptimizer() {
   const [view, setView] = useState<'lineups'|'playerExp'|'teamExp'>('lineups');
   const [showResults, setShowResults] = useState(false);
   const [warn, setWarn] = useState('');
+  const [debug, setDebug] = useState('');
 
   // Settings
   const [defaultMaxExp, setMaxExp] = useState(100);
@@ -97,6 +98,13 @@ export default function DFSOptimizer() {
     setGen(true); setWarn('');
     setTimeout(() => {
       const activeCombos = selectedStacks.size === 0 ? [[]] : Array.from(selectedStacks).map(k => COMBO_MAP[k]||[]);
+      // Collect debug info before optimizing
+      const dbgPositions = [...new Set(players.map((p:any) => p.position))].sort().join(', ');
+      const dbgSalary = players.filter((p:any) => (p.salary||0) > 0).length;
+      const dbgFpts = players.filter((p:any) => (p.proj_fpts||0) > 0).length;
+      const dbgSPs = players.filter((p:any) => p.position === 'SP').length;
+      setDebug(`Pool: ${players.length} total | ${dbgSPs} SPs | salary>0: ${dbgSalary} | fpts>0: ${dbgFpts} | positions: ${dbgPositions}`);
+
       const result = optimize({
         locked: Array.from(locked), excluded: Array.from(excluded),
         numLineups, stackCombos: activeCombos, mode: 'cash',
@@ -486,7 +494,10 @@ export default function DFSOptimizer() {
             onChange={e=>setNum(Math.min(150,Math.max(1,+e.target.value)))}
             style={{...inp,width:80,textAlign:'center' as const}}/>
         </div>
-        {warn && <div style={{fontSize:12,color:'#f59e0b',flex:1}}>{warn}</div>}
+        <div style={{flex:1}}>
+          {warn && <div style={{fontSize:12,color:'#f59e0b'}}>{warn}</div>}
+          {debug && <div style={{fontSize:11,color:'#475569',marginTop:2}}>{debug}</div>}
+        </div>
         <div style={{display:'flex',gap:12,marginLeft:'auto'}}>
           <button onClick={generate} disabled={generating||players.length===0} style={{
             padding:'12px 44px',borderRadius:8,border:'none',
