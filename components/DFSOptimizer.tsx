@@ -166,7 +166,6 @@ export default function DFSOptimizer() {
         minSalary,
         maxExposure,
         maxOwnership,
-        maxPerTeam,
         ruleNoBatterVsPitcher: ruleNoBvP,
         ruleNoSameGameSPs,
         ruleMinSalary: ruleMinSal,
@@ -459,23 +458,7 @@ export default function DFSOptimizer() {
             )}
           </div>
 
-          {/* Max per team */}
-          <div style={{ marginBottom:12 }}>
-            <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Max players per team</div>
-            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-              {[10,6,5,4].map(n => (
-                <button key={n} onClick={() => setMaxTeam(n)} style={{
-                  padding:'4px 12px', borderRadius:5, cursor:'pointer', fontSize:12,
-                  fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
-                  border:`1px solid ${maxPerTeam===n ? 'rgba(196,30,58,0.5)' : 'rgba(255,255,255,0.08)'}`,
-                  background:maxPerTeam===n ? 'rgba(196,30,58,0.1)' : 'transparent',
-                  color:maxPerTeam===n ? '#f06070' : '#64748b',
-                }}>
-                  {n===10 ? 'No limit' : `Max ${n}`}
-                </button>
-              ))}
-            </div>
-          </div>
+
 
           {/* Toggleable rules */}
           <div style={{ marginBottom:12, padding:'8px 10px', background:'rgba(255,255,255,0.03)', borderRadius:6 }}>
