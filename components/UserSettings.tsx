@@ -16,28 +16,18 @@ const TEAM_COLORS: Record<string,string> = {
 
 export default function UserSettings({ onClose }: { onClose: () => void }) {
   const { user, token } = useAuth();
-  const [espnLeagueId, setEspnLeagueId] = useState('');
-  const [espnS2, setEspnS2] = useState('');
-  const [espnSwid, setEspnSwid] = useState('');
   const [favTeams, setFavTeams] = useState<string[]>([]);
   const [notifyInjuries, setNotifyInjuries] = useState(true);
   const [notifyLineups, setNotifyLineups] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState<'espn'|'teams'|'notifications'>('espn');
-  const [showS2, setShowS2] = useState(false);
-  const [showSwid, setShowSwid] = useState(false);
+  const [activeTab, setActiveTab] = useState<'teams'|'notifications'>('teams');
 
-  // Load current settings — including ESPN credentials
   useEffect(() => {
     if (!token) return;
     fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => {
-        setEspnLeagueId(data.espn_league_id || '');
-        // Load saved ESPN cookies back into state
-        setEspnS2(data.espn_s2 || '');
-        setEspnSwid(data.espn_swid || '');
         setFavTeams(data.fav_teams || []);
         setNotifyInjuries(data.notify_prefs?.injuries ?? true);
         setNotifyLineups(data.notify_prefs?.lineups ?? true);
@@ -52,9 +42,6 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          espn_league_id: espnLeagueId || null,
-          espn_s2: espnS2 || null,
-          espn_swid: espnSwid || null,
           fav_teams: favTeams,
           notify_prefs: { injuries: notifyInjuries, lineups: notifyLineups },
         }),
@@ -70,21 +57,14 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
   };
 
   const TABS = [
-    { id: 'espn' as const, label: 'ESPN League' },
     { id: 'teams' as const, label: 'Favorite Teams' },
     { id: 'notifications' as const, label: 'Notifications' },
   ];
 
   const inputStyle = {
-    background: '#141414',
-    border: '1px solid rgba(255,255,255,0.08)',
-    color: '#e2e8f0',
-    borderRadius: 6,
-    padding: '8px 12px',
-    fontSize: 13,
-    outline: 'none',
-    width: '100%',
-    fontFamily: "'Barlow',sans-serif",
+    background: '#141414', border: '1px solid rgba(255,255,255,0.08)',
+    color: '#e2e8f0', borderRadius: 6, padding: '8px 12px', fontSize: 13,
+    outline: 'none', width: '100%', fontFamily: "'Barlow',sans-serif",
   };
 
   return (
@@ -122,91 +102,6 @@ export default function UserSettings({ onClose }: { onClose: () => void }) {
 
         {/* Content */}
         <div style={{ padding: 20, overflowY: 'auto', maxHeight: 'calc(88vh - 150px)' }}>
-
-          {/* ESPN */}
-          {activeTab === 'espn' && (
-            <div>
-              <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 1.6 }}>
-                Connect your ESPN Fantasy Baseball league to sync your roster, standings, and transactions.
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>
-                  League ID <span style={{ color: '#475569' }}>— from your ESPN league URL</span>
-                </label>
-                <input
-                  style={inputStyle}
-                  placeholder="e.g. 872182831"
-                  value={espnLeagueId}
-                  onChange={e => setEspnLeagueId(e.target.value)}
-                  autoComplete="off"
-                />
-              </div>
-
-              <div style={{
-                background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)',
-                borderRadius: 6, padding: '10px 12px', fontSize: 12, color: '#fbbf24',
-                marginBottom: 16, lineHeight: 1.6,
-              }}>
-                <strong>Private league?</strong> Get your ESPN cookies: Chrome → ESPN Fantasy →
-                F12 → Application → Cookies → espn.com → copy <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: 3 }}>espn_s2</code> and <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: 3 }}>SWID</code> below.
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>
-                  espn_s2 cookie
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    style={{ ...inputStyle, paddingRight: 60 }}
-                    placeholder="AEB3K2..."
-                    type={showS2 ? 'text' : 'password'}
-                    value={espnS2}
-                    onChange={e => setEspnS2(e.target.value)}
-                    autoComplete="new-password"
-                    spellCheck={false}
-                  />
-                  <button onClick={() => setShowS2(!showS2)} style={{
-                    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                    background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 11,
-                    fontFamily: "'Barlow Condensed',sans-serif",
-                  }}>{showS2 ? 'Hide' : 'Show'}</button>
-                </div>
-                {espnS2 && (
-                  <div style={{ fontSize: 11, color: '#22c55e', marginTop: 4 }}>
-                    ✓ Saved ({espnS2.length} chars)
-                  </div>
-                )}
-              </div>
-
-              <div style={{ marginBottom: 4 }}>
-                <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>
-                  SWID cookie <span style={{ color: '#475569' }}>— include the curly braces</span>
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    style={{ ...inputStyle, paddingRight: 60 }}
-                    placeholder="{A1B2C3D4-1234-...}"
-                    type={showSwid ? 'text' : 'password'}
-                    value={espnSwid}
-                    onChange={e => setEspnSwid(e.target.value)}
-                    autoComplete="new-password"
-                    spellCheck={false}
-                  />
-                  <button onClick={() => setShowSwid(!showSwid)} style={{
-                    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                    background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 11,
-                    fontFamily: "'Barlow Condensed',sans-serif",
-                  }}>{showSwid ? 'Hide' : 'Show'}</button>
-                </div>
-                {espnSwid && (
-                  <div style={{ fontSize: 11, color: '#22c55e', marginTop: 4 }}>
-                    ✓ Saved ({espnSwid.length} chars)
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Favorite Teams */}
           {activeTab === 'teams' && (
