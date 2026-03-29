@@ -438,7 +438,7 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
 
   if (roster.length !== 10) return null;
   const total = roster.reduce((s, p) => s + (p.salary || 0), 0);
-  if (rngSeed === 1) console.log('[buildOne] seed=1 total=$' + total + ' floor=' + minSal + ' cap=' + cap + ' ok=' + (total >= minSal && total <= cap));
+  if (rngSeed <= 5) console.log('[buildOne] seed=' + rngSeed + ' roster=' + roster.length + ' total=$' + total + ' floor=' + minSal + ' cap=' + cap + ' pass=' + (total >= minSal && total <= cap));
   if (total < minSal || total > cap) return null;
   return roster;
 }
