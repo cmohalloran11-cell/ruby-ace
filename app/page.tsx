@@ -51,14 +51,15 @@ export default function HomePage() {
 
               {/* Logo */}
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <div style={{
-                  width:34, height:34,
-                  background:'linear-gradient(135deg,#2d0810,#9b1c35)',
-                  border:'1px solid rgba(196,30,58,0.4)',
-                  borderRadius:8,
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  fontSize:17,
-                }}>♦</div>
+                <svg width="24" height="30" viewBox="0 0 80 96" xmlns="http://www.w3.org/2000/svg">
+                  <polygon points="40,0 0,25 40,35" fill="#c41e3a"/>
+                  <polygon points="40,0 80,25 40,35" fill="#9b1830"/>
+                  <polygon points="0,25 40,35 18,88" fill="#6e1022"/>
+                  <polygon points="80,25 40,35 62,88" fill="#c41e3a" opacity="0.78"/>
+                  <polygon points="40,35 18,88 40,96" fill="#4a0b18"/>
+                  <polygon points="40,35 62,88 40,96" fill="#851525"/>
+                  <polygon points="40,0 80,25 40,96 0,25" fill="none" stroke="#c41e3a" stroke-width="1.5" opacity="0.3"/>
+                </svg>
                 <div>
                   <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:21, fontWeight:700, lineHeight:1, letterSpacing:'-0.5px' }}>
                     Ruby <span style={{ color:'#c41e3a' }}>Ace</span>
