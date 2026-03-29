@@ -93,12 +93,16 @@ export default function DFSOptimizer() {
   const [numLineups, setNum]      = useState(20);
   const [mode, setMode]           = useState<'cash'|'gpp'>('cash');
   const [stackTeam, setStack]     = useState('');
-  const [stackSize, setStackSz]   = useState(3);
+  const [stackCombo, setCombo]    = useState<number[]>([]);
   const [minUnique, setUniq]      = useState(2);
   const [minSalary, setMinSal]    = useState(49000);
   const [maxExposure, setMaxExp]  = useState(100);
   const [maxOwnership, setMaxOwn] = useState(0);
-  const [maxPerTeam, setMaxTeam]  = useState(6);
+  const [maxPerTeam, setMaxTeam]  = useState(10);
+  // Toggleable rules
+  const [ruleNoBvP, setNoBvP]     = useState(true);
+  const [ruleNoSameGameSPs, setNoSameSPs] = useState(true);
+  const [ruleMinSal, setRuleMinSal]       = useState(true);
 
   // ── Output ──
   const [lineups, setLineups]     = useState<any[]>([]);
@@ -156,13 +160,16 @@ export default function DFSOptimizer() {
         excluded:     Array.from(excluded),
         numLineups,
         stackTeam:    stackTeam || null,
-        stackSize,
+        stackCombo,
         mode,
         minUnique,
         minSalary,
         maxExposure,
         maxOwnership,
         maxPerTeam,
+        ruleNoBatterVsPitcher: ruleNoBvP,
+        ruleNoSameGameSPs,
+        ruleMinSalary: ruleMinSal,
       });
       setLineups(result);
       setIdx(0);
@@ -410,35 +417,94 @@ export default function DFSOptimizer() {
             </div>
           </div>
 
-          {/* Stack */}
+          {/* Stack combos */}
           <div style={{ marginBottom:12 }}>
-            <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Team stack (optional)</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 70px', gap:8 }}>
-              <select className="input-field" value={stackTeam} onChange={e => setStack(e.target.value)}>
-                <option value="">No stack</option>
-                {teams.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <input className="input-field" type="number" min={2} max={5} value={stackSize}
-                disabled={!stackTeam} onChange={e => setStackSz(Math.min(5,Math.max(2,+e.target.value)))} />
+            <div style={{ fontSize:12, color:'#94a3b8', marginBottom:6 }}>Stack combination</div>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:8 }}>
+              {[
+                { label:'None',    combo:[] },
+                { label:'4-3-1',   combo:[4,3,1] },
+                { label:'4-2-2',   combo:[4,2,2] },
+                { label:'4-2-1-1', combo:[4,2,1,1] },
+                { label:'5-3',     combo:[5,3] },
+                { label:'5-2-1',   combo:[5,2,1] },
+                { label:'5-1-1-1', combo:[5,1,1,1] },
+                { label:'4-1-1-1-1',combo:[4,1,1,1,1] },
+                { label:'3-2-2',   combo:[3,2,2] },
+                { label:'3-2-1-1', combo:[3,2,1,1] },
+              ].map(({ label, combo }) => {
+                const active = JSON.stringify(stackCombo) === JSON.stringify(combo);
+                return (
+                  <button key={label} onClick={() => setCombo(combo)} style={{
+                    padding:'4px 10px', borderRadius:5, cursor:'pointer', fontSize:11,
+                    fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
+                    border:`1px solid ${active ? 'rgba(96,165,250,0.5)' : 'rgba(255,255,255,0.08)'}`,
+                    background:active ? 'rgba(96,165,250,0.12)' : 'transparent',
+                    color:active ? '#60a5fa' : '#64748b',
+                  }}>{label}</button>
+                );
+              })}
             </div>
-            {stackTeam && (
-              <div style={{ fontSize:11, color:'#475569', marginTop:4 }}>
-                Forcing {stackSize} {stackTeam} batters + bring-back
+            {stackCombo.length > 0 && (
+              <div style={{ marginBottom:8 }}>
+                <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Anchor team (largest group)</div>
+                <select className="input-field" value={stackTeam} onChange={e => setStack(e.target.value)}>
+                  <option value="">Auto (best team)</option>
+                  {teams.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <div style={{ fontSize:11, color:'#475569', marginTop:4 }}>
+                  {stackCombo[0]} players from {stackTeam || 'best team'}{stackCombo.slice(1).map((n,i) => `, ${n} from another team`)}
+                </div>
               </div>
             )}
           </div>
 
-          {/* Active rules */}
-          <div style={{ marginBottom:12, padding:'8px 10px', background:'rgba(255,255,255,0.03)', borderRadius:6, fontSize:11, color:'#475569', lineHeight:1.8 }}>
-            <div style={{ color:'#64748b', fontWeight:600, marginBottom:3, fontSize:11 }}>HARD RULES (always enforced)</div>
-            <div>✓ No batters vs own pitcher in same lineup</div>
-            <div>✓ No two SPs from same game</div>
-            <div>✓ No duplicate lineups</div>
-            <div>✓ Salary: ${minSalary.toLocaleString()} – $50,000</div>
-            <div>✓ Max {maxPerTeam} players per team</div>
-            {maxExposure<100 && <div style={{ color:'#f59e0b' }}>✓ Max {maxExposure}% exposure = {Math.floor(maxExposure/100*numLineups)}/{numLineups} lineups per player</div>}
-            {maxOwnership>0 && <div style={{ color:'#f59e0b' }}>✓ Skip players over {maxOwnership}% owned</div>}
-            {stackTeam && <div style={{ color:'#60a5fa' }}>✓ {stackSize}-man {stackTeam} stack</div>}
+          {/* Max per team */}
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Max players per team</div>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              {[10,6,5,4].map(n => (
+                <button key={n} onClick={() => setMaxTeam(n)} style={{
+                  padding:'4px 12px', borderRadius:5, cursor:'pointer', fontSize:12,
+                  fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
+                  border:`1px solid ${maxPerTeam===n ? 'rgba(196,30,58,0.5)' : 'rgba(255,255,255,0.08)'}`,
+                  background:maxPerTeam===n ? 'rgba(196,30,58,0.1)' : 'transparent',
+                  color:maxPerTeam===n ? '#f06070' : '#64748b',
+                }}>
+                  {n===10 ? 'No limit' : `Max ${n}`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Toggleable rules */}
+          <div style={{ marginBottom:12, padding:'8px 10px', background:'rgba(255,255,255,0.03)', borderRadius:6 }}>
+            <div style={{ fontSize:11, color:'#64748b', fontWeight:600, marginBottom:8 }}>RULES</div>
+            {[
+              { label:'No batters vs own pitcher',  val:ruleNoBvP,       set:setNoBvP,       recommended:true },
+              { label:'No two SPs from same game',  val:ruleNoSameGameSPs, set:setNoSameSPs, recommended:true },
+              { label:'Skip min-salary busts (<$3.5k, <7 FP)', val:ruleMinSal, set:setRuleMinSal, recommended:false },
+              { label:'No duplicate lineups',       val:true,            set:()=>{},         recommended:true, locked:true },
+            ].map(rule => (
+              <div key={rule.label} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                <button
+                  onClick={() => !rule.locked && rule.set(!rule.val)}
+                  style={{
+                    width:32, height:18, borderRadius:9, border:'none', cursor:rule.locked?'default':'pointer',
+                    background:rule.val ? '#c41e3a' : 'rgba(255,255,255,0.1)',
+                    position:'relative', flexShrink:0, transition:'background .15s',
+                    opacity:rule.locked ? 0.5 : 1,
+                  }}>
+                  <div style={{
+                    position:'absolute', top:2, width:14, height:14, borderRadius:'50%',
+                    background:'white', transition:'left .15s',
+                    left:rule.val ? 16 : 2,
+                  }} />
+                </button>
+                <span style={{ fontSize:11, color:rule.val ? '#e2e8f0' : '#475569' }}>{rule.label}</span>
+                {rule.recommended && <span style={{ fontSize:10, color:'#334155', marginLeft:'auto' }}>rec</span>}
+              </div>
+            ))}
           </div>
 
           <button className="btn-primary" style={{ width:'100%', padding:12, fontSize:14 }}
