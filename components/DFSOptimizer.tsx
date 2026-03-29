@@ -93,7 +93,7 @@ export default function DFSOptimizer() {
   const [numLineups, setNum]      = useState(20);
   const [mode, setMode]           = useState<'cash'|'gpp'>('cash');
   const [stackTeam, setStack]     = useState('');
-  const [stackCombo, setCombo]    = useState<number[]>([]);
+  const [selectedCombos, setSelectedCombos] = useState<Set<string>>(new Set()); // keys like '4-3-1'
   const [minUnique, setUniq]      = useState(2);
   const [minSalary, setMinSal]    = useState(49000);
   const [maxExposure, setMaxExp]  = useState(100);
@@ -155,12 +155,22 @@ export default function DFSOptimizer() {
   const generate = () => {
     setGen(true); setWarn(''); setSimResults([]); setShowSim(false);
     setTimeout(() => {
+      // Convert selected combo keys back to arrays, add [] for 'None'
+      const COMBO_MAP: Record<string, number[]> = {
+        'None': [], '4-3-1': [4,3,1], '4-2-2': [4,2,2], '4-2-1-1': [4,2,1,1],
+        '5-3': [5,3], '5-2-1': [5,2,1], '5-1-1-1': [5,1,1,1], '4-1-1-1-1': [4,1,1,1,1],
+        '3-2-2': [3,2,2], '3-2-1-1': [3,2,1,1],
+      };
+      const activeCombos = selectedCombos.size === 0
+        ? [[]] // no combo selected = no stack constraint
+        : Array.from(selectedCombos).map(k => COMBO_MAP[k] || []);
+
       const result = optimize({
         locked:       Array.from(locked),
         excluded:     Array.from(excluded),
         numLineups,
         stackTeam:    stackTeam || null,
-        stackCombo,
+        stackCombos:  activeCombos,
         mode,
         minUnique,
         minSalary,
@@ -416,43 +426,62 @@ export default function DFSOptimizer() {
             </div>
           </div>
 
-          {/* Stack combos */}
+          {/* Stack combos — multi-select checkboxes */}
           <div style={{ marginBottom:12 }}>
-            <div style={{ fontSize:12, color:'#94a3b8', marginBottom:6 }}>Stack combination</div>
-            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:8 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+              <div style={{ fontSize:12, color:'#94a3b8' }}>Stack combinations</div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={() => setSelectedCombos(new Set(['4-3-1','4-2-2','5-3','5-2-1','3-2-2']))}
+                  style={{ fontSize:10, color:'#475569', background:'none', border:'none', cursor:'pointer', textDecoration:'underline' }}>
+                  Common
+                </button>
+                <button onClick={() => setSelectedCombos(new Set())}
+                  style={{ fontSize:10, color:'#475569', background:'none', border:'none', cursor:'pointer', textDecoration:'underline' }}>
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5 }}>
               {[
-                { label:'None',    combo:[] },
-                { label:'4-3-1',   combo:[4,3,1] },
-                { label:'4-2-2',   combo:[4,2,2] },
-                { label:'4-2-1-1', combo:[4,2,1,1] },
-                { label:'5-3',     combo:[5,3] },
-                { label:'5-2-1',   combo:[5,2,1] },
-                { label:'5-1-1-1', combo:[5,1,1,1] },
-                { label:'4-1-1-1-1',combo:[4,1,1,1,1] },
-                { label:'3-2-2',   combo:[3,2,2] },
-                { label:'3-2-1-1', combo:[3,2,1,1] },
-              ].map(({ label, combo }) => {
-                const active = JSON.stringify(stackCombo) === JSON.stringify(combo);
+                { label:'None (no stack)', key:'None' },
+                { label:'4-3-1', key:'4-3-1' },
+                { label:'4-2-2', key:'4-2-2' },
+                { label:'4-2-1-1', key:'4-2-1-1' },
+                { label:'5-3', key:'5-3' },
+                { label:'5-2-1', key:'5-2-1' },
+                { label:'5-1-1-1', key:'5-1-1-1' },
+                { label:'4-1-1-1-1', key:'4-1-1-1-1' },
+                { label:'3-2-2', key:'3-2-2' },
+                { label:'3-2-1-1', key:'3-2-1-1' },
+              ].map(({ label, key }) => {
+                const checked = selectedCombos.has(key);
                 return (
-                  <button key={label} onClick={() => setCombo(combo)} style={{
-                    padding:'4px 10px', borderRadius:5, cursor:'pointer', fontSize:11,
-                    fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
-                    border:`1px solid ${active ? 'rgba(96,165,250,0.5)' : 'rgba(255,255,255,0.08)'}`,
-                    background:active ? 'rgba(96,165,250,0.12)' : 'transparent',
-                    color:active ? '#60a5fa' : '#64748b',
-                  }}>{label}</button>
+                  <label key={key} style={{ display:'flex', alignItems:'center', gap:7, cursor:'pointer', padding:'4px 6px',
+                    borderRadius:5, background:checked?'rgba(96,165,250,0.06)':'transparent',
+                    border:`1px solid ${checked?'rgba(96,165,250,0.25)':'rgba(255,255,255,0.06)'}` }}>
+                    <input type="checkbox" checked={checked}
+                      onChange={() => {
+                        const n = new Set(selectedCombos);
+                        checked ? n.delete(key) : n.add(key);
+                        setSelectedCombos(n);
+                      }}
+                      style={{ accentColor:'#60a5fa', width:13, height:13, flexShrink:0 }} />
+                    <span style={{ fontSize:11, fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
+                      color:checked?'#60a5fa':'#64748b' }}>{label}</span>
+                  </label>
                 );
               })}
             </div>
-            {stackCombo.length > 0 && (
-              <div style={{ marginBottom:8 }}>
-                <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Anchor team (largest group)</div>
+            {selectedCombos.size > 0 && !selectedCombos.has('None') && (
+              <div style={{ marginTop:8 }}>
+                <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Anchor team (optional)</div>
                 <select className="input-field" value={stackTeam} onChange={e => setStack(e.target.value)}>
-                  <option value="">Auto (best team)</option>
+                  <option value="">Auto — varies per lineup</option>
                   {teams.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 <div style={{ fontSize:11, color:'#475569', marginTop:4 }}>
-                  {stackCombo[0]} players from {stackTeam || 'best team'}{stackCombo.slice(1).map((n,i) => `, ${n} from another team`)}
+                  {selectedCombos.size} combo{selectedCombos.size>1?'s':''} selected — rotated across {numLineups} lineups.
+                  {stackTeam ? ` ${stackTeam} anchors every lineup.` : ' Best team anchors each lineup.'}
                 </div>
               </div>
             )}
