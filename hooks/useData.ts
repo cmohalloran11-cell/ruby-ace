@@ -219,6 +219,18 @@ const SLOTS = [
   { key: 'OF', positions: ['OF'],       count: 3 },
 ];
 
+// Fill order and minimum realistic salary per slot
+// Used for budget-aware selection — ensures enough salary left for later slots
+const SLOT_FILL_ORDER = ['SP','SP','C','1B','2B','3B','SS','OF','OF','OF'];
+const SLOT_MIN_SAL: Record<string,number> = {
+  SP: 3500, C: 3000, '1B': 3000, '2B': 3000, '3B': 3000, SS: 3000, OF: 2500
+};
+function minSalaryNeeded(rosterLen: number): number {
+  // Minimum salary for all slots AFTER the one being filled (index rosterLen)
+  const future = SLOT_FILL_ORDER.slice(rosterLen + 1);
+  return future.reduce((sum, s) => sum + (SLOT_MIN_SAL[s] || 2500), 0);
+}
+
 // Seeded deterministic RNG (LCG)
 function mkRng(seed: number) {
   let s = (seed * 1664525 + 1013904223) >>> 0;
@@ -421,11 +433,15 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
       // Min salary filter
       if (ruleMinSalary && (p.salary || 0) <= 3500 && (p.proj_fpts || 0) < 7) continue;
 
-      // Salary headroom
-      const slotsRemaining = 10 - roster.length - 1;
-      const salAfter = salUsed + (p.salary || 0);
-      if (salAfter > cap) continue; // hard cap only — floor enforced at end
-      if (slotsRemaining > 0 && salAfter + slotsRemaining * 9500 < minSal) continue; // cant reach floor
+      // Salary checks — budget-aware using slot-order minimums
+      const _pSal   = p.salary || 0;
+      const _salAfter = salUsed + _pSal;
+      const _minLeft  = minSalaryNeeded(roster.length); // min cost of all future slots
+      // Hard cap: this player + minimum for all remaining slots must fit in cap
+      if (_salAfter + _minLeft > cap) continue;
+      // Floor: must be able to reach minSal with remaining slots at max $9000 each
+      const _slotsAfter = 10 - roster.length - 1;
+      if (_slotsAfter > 0 && _salAfter + _slotsAfter * 9000 < minSal) continue;
 
       roster.push(p);
       usedIds.add(p.id);
