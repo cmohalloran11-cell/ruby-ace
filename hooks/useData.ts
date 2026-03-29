@@ -134,10 +134,11 @@ export function useAdminProjections(date?: string) {
 
   useEffect(() => {
     if (!token) return;
-    apiFetch(`/api/admin/projections?date=${d}`, token)
+    // No date param = API returns most recent slate
+    apiFetch(`/api/admin/projections`, token)
       .then(data => { setPlayers(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [token, d]);
+  }, [token]);
 
   const update = async (id: number, fields: Record<string, any>) => {
     setSaving(true);
@@ -167,7 +168,7 @@ export function useAdminProjections(date?: string) {
     });
     const result = await res.json();
     setSaving(false);
-    apiFetch(`/api/admin/projections?date=${d}`, token)
+    apiFetch(`/api/admin/projections`, token)
       .then(data => setPlayers(Array.isArray(data) ? data : []));
     return result;
   };
