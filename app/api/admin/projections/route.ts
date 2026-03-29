@@ -193,59 +193,56 @@ export async function POST(request: NextRequest) {
       } else {
         // theBatX or generic projection CSV
         const rows = records.map(r => mapTheBatX(r, 'upload', slateDate)).filter(Boolean) as any[];
-        if (!rows.length) return NextResponse.json({ error: `No valid players found. Detected columns: ${sampleKeys}. Need NAME (or PLAYER) and FPTS columns with salary > 0.`, inserted: 0 });
+        if (!rows.length) return NextResponse.json({ error: `No valid players found. Columns: ${sampleKeys}. Need NAME (or PLAYER) and FPTS columns.`, inserted: 0 });
 
-        // Upsert — merge with existing DK salary data
+        // Upsert in batches — handles unique(player_name, slate_date, source) constraint
         let inserted = 0;
-        for (let i = 0; i < rows.length; i += 100) {
-          const batch = rows.slice(i, i + 100);
-          // Check if player already exists (from DK salary upload) and preserve salary/position
-          const names = batch.map((r: any) => r.player_name);
-          const { data: existing } = await sb.from('projections')
-            .select('id, player_name, salary, position')
-            .eq('slate_date', slateDate)
-            .in('player_name', names);
+        let firstError = '';
+        for (let i = 0; i < rows.length; i += 50) {
+          const batch = rows.slice(i, i + 50).map((row: any) => ({
+            player_name:        row.player_name,
+            team:               row.team,
+            position:           row.position,
+            salary:             row.salary || 0,
+            proj_fpts:          row.proj_fpts || 0,
+            proj_ownership:     row.proj_ownership || 0,
+            proj_floor:         row.proj_floor || 0,
+            proj_ceiling:       row.proj_ceiling || 0,
+            lineup_pos:         row.lineup_pos || 0,
+            in_probable_lineup: row.in_probable_lineup ?? true,
+            opp:                row.opp || null,
+            dk_name_id:         row.dk_name_id || null,
+            proj_hr:            row.proj_hr || 0,
+            proj_rbi:           row.proj_rbi || 0,
+            proj_r:             row.proj_r || 0,
+            proj_sb:            row.proj_sb || 0,
+            proj_h:             row.proj_h || 0,
+            proj_k:             row.proj_k || 0,
+            proj_ip:            row.proj_ip || 0,
+            proj_er:            row.proj_er || 0,
+            proj_pitching_k:    row.proj_pitching_k || 0,
+            proj_bb:            row.proj_bb || 0,
+            source:             'upload',
+            slate_date:         slateDate,
+          }));
 
-          const existingMap: Record<string, any> = {};
-          (existing || []).forEach((p: any) => { existingMap[normalizeName(p.player_name)] = p; });
+          const { data: upserted, error: batchErr } = await sb
+            .from('projections')
+            .upsert(batch, { onConflict: 'player_name,slate_date,source', ignoreDuplicates: false })
+            .select('id');
 
-          for (const row of batch) {
-            const key = normalizeName(row.player_name);
-            const ex = existingMap[key];
-            if (ex) {
-              // Update projection data, preserve existing salary and position if not in this CSV
-              await sb.from('projections').update({
-                proj_fpts:          row.proj_fpts,
-                proj_ownership:     row.proj_ownership,
-                proj_floor:         row.proj_floor,
-                proj_ceiling:       row.proj_ceiling,
-                lineup_pos:         row.lineup_pos,
-                in_probable_lineup: row.in_probable_lineup,
-                opp:                row.opp || ex.opp,
-                proj_hr:            row.proj_hr,
-                proj_rbi:           row.proj_rbi,
-                proj_r:             row.proj_r,
-                proj_sb:            row.proj_sb,
-                proj_h:             row.proj_h,
-                proj_k:             row.proj_k,
-                proj_ip:            row.proj_ip,
-                proj_er:            row.proj_er,
-                proj_pitching_k:    row.proj_pitching_k,
-                proj_bb:            row.proj_bb,
-                team:               row.team || ex.team,
-                position:           row.position || ex.position,
-                // Use salary from CSV if present, otherwise keep existing
-                salary:             row.salary > 0 ? row.salary : ex.salary,
-                dk_name_id:         row.dk_name_id || ex.dk_name_id,
-                source: 'upload',
-              }).eq('id', ex.id);
-            } else {
-              await sb.from('projections').insert(row);
-            }
-            inserted++;
+          if (batchErr) {
+            firstError = batchErr.message;
+            console.error('Upsert batch error:', batchErr.message);
+          } else {
+            inserted += upserted?.length || 0;
           }
         }
-        return NextResponse.json({ inserted, source: 'upload', slateDate });
+
+        if (inserted === 0 && firstError) {
+          return NextResponse.json({ error: `Upload failed: ${firstError}`, inserted: 0 });
+        }
+        return NextResponse.json({ inserted, total: rows.length, source: 'upload', slateDate });
       }
     }
 
