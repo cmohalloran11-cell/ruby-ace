@@ -1,711 +1,508 @@
 'use client';
-// components/DFSOptimizer.tsx
-import { useState, useMemo, useRef } from 'react';
+// components/DFSOptimizer.tsx — DFO-style layout
+import { useState, useMemo } from 'react';
 import { useProjections, useDFSOptimizer } from '@/hooks/useData';
-import { TeamLogo, PosBadge, LoadingSkeleton, EmptyState, fmt$ } from './ui/shared';
 
-const ALL_POS = ['All', 'SP', 'C', '1B', '2B', '3B', 'SS', 'OF'];
-type SortKey = 'proj_fpts' | 'proj_floor' | 'proj_ceiling' | 'proj_ownership' | 'salary' | 'player_name' | 'valueRating';
-const POS_ORDER: Record<string, number> = { SP: 0, C: 1, '1B': 2, '2B': 3, '3B': 4, SS: 5, OF: 6 };
+const SLOTS = ['P','P','C','1B','2B','3B','SS','OF','OF','OF'];
+const COMBO_MAP: Record<string, number[]> = {
+  '4-3 Team Stack': [4,3], '4-4 Team Stack': [4,4],
+  '5-2': [5,2], '5-3': [5,3], '4-2-2': [4,2,2],
+  '4-3-1': [4,3,1], '4-2-1-1': [4,2,1,1], '3-3-2': [3,3,2],
+  '3-2-2': [3,2,2], '3-2-1-1': [3,2,1,1],
+};
 
-function valColor(v: number) {
-  if (v >= 7) return '#22c55e';
-  if (v >= 5) return '#f59e0b';
-  return '#94a3b8';
-}
-function ownColor(o: number) {
-  if (o >= 35) return '#ef4444';
-  if (o >= 20) return '#f97316';
-  if (o >= 10) return '#f59e0b';
-  return '#22c55e';
-}
-
-// ── DK Download — exact DKEntries Edit Entries format ─────────
-// Must match DKEntries.csv exactly:
-// Cols 0-3:  Entry ID, Contest Name, Contest ID, Entry Fee (leave blank — user pastes from DKEntries download)
-// Cols 4-13: P, P, C, 1B, 2B, 3B, SS, OF, OF, OF  using "Name (ID)" format
-// Col 14:    blank (DK has instructions here)
-// NO wrapping in quotes unless field contains comma — DK is strict about format
-function downloadLineups(lineups: any[]) {
+function downloadCSV(lineups: any[][]) {
   if (!lineups.length) return;
-
-  // Exact header matching DKEntries.csv
   const header = 'Entry ID,Contest Name,Contest ID,Entry Fee,P,P,C,1B,2B,3B,SS,OF,OF,OF';
-
-  const dataRows = lineups.map(lu => {
-    // Group by position
+  const rows = lineups.map(roster => {
     const byPos: Record<string, any[]> = { SP:[], C:[], '1B':[], '2B':[], '3B':[], SS:[], OF:[] };
-    for (const p of lu.players) {
-      if (byPos[p.position]) byPos[p.position].push(p);
-    }
-
-    // Build ordered slots: P, P, C, 1B, 2B, 3B, SS, OF, OF, OF
-    const slots: (any|null)[] = [
-      byPos['SP'][0]  ?? null,
-      byPos['SP'][1]  ?? null,
-      byPos['C'][0]   ?? null,
-      byPos['1B'][0]  ?? null,
-      byPos['2B'][0]  ?? null,
-      byPos['3B'][0]  ?? null,
-      byPos['SS'][0]  ?? null,
-      byPos['OF'][0]  ?? null,
-      byPos['OF'][1]  ?? null,
-      byPos['OF'][2]  ?? null,
-    ];
-
-    const playerCells = slots.map(p => {
-      if (!p) return '';
-      // DK Edit Entries requires "Firstname Lastname (DK_ID)" exactly
-      if (p.dk_name_id && p.dk_name_id.trim()) return p.dk_name_id.trim();
-      return p.player_name || '';
-    });
-
-    // 4 blank entry cols + 10 player cols — no trailing columns
-    return ['', '', '', '', ...playerCells].join(',');
+    for (const p of roster) { if (byPos[p.position]) byPos[p.position].push(p); }
+    const slots = [byPos.SP[0],byPos.SP[1],byPos.C[0],byPos['1B'][0],byPos['2B'][0],
+                   byPos['3B'][0],byPos.SS[0],byPos.OF[0],byPos.OF[1],byPos.OF[2]];
+    return ',,,,,' + slots.map(p => p ? (p.dk_name_id?.trim() || p.player_name) : '').join(',');
   });
-
-  const csvContent = [header, ...dataRows].join('\r\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
+  const csv = [header,...rows].join('\r\n');
   const a = document.createElement('a');
-  a.href = url;
-  a.download = `ruby-ace-lineups-${new Date().toISOString().split('T')[0]}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download = 'lineups.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+const TAB = (active: boolean) => ({
+  display:'flex' as const, flexDirection:'column' as const, alignItems:'center' as const,
+  gap:4, padding:'10px 0', cursor:'pointer', fontSize:12, flex:1,
+  color: active ? '#fff' : '#64748b',
+  background: active ? '#2dd4bf' : 'transparent',
+  border:'none', borderRadius:8, fontWeight: active ? 700 : 400,
+});
+
+function Toggle({val, onClick}: {val:boolean, onClick:()=>void}) {
+  return (
+    <button onClick={onClick} style={{
+      width:44,height:24,borderRadius:12,border:'none',cursor:'pointer',
+      background:val?'#2dd4bf':'rgba(255,255,255,0.15)',position:'relative',transition:'background .2s',flexShrink:0
+    }}>
+      <div style={{position:'absolute',top:3,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s',left:val?23:3}} />
+    </button>
+  );
+}
+
+function Slider({value,min,max,onChange,label}:{value:number,min:number,max:number,onChange:(n:number)=>void,label:string}) {
+  return (
+    <div style={{marginBottom:12}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+        <span style={{fontSize:12,color:'#94a3b8'}}>{label}</span>
+        <span style={{fontSize:12,color:'#2dd4bf',fontWeight:700}}>{value}</span>
+      </div>
+      <input type="range" min={min} max={max} value={value} onChange={e=>onChange(+e.target.value)}
+        style={{width:'100%',accentColor:'#2dd4bf'}}/>
+      <div style={{display:'flex',justifyContent:'space-between'}}>
+        <span style={{fontSize:10,color:'#475569'}}>{min}</span>
+        <span style={{fontSize:10,color:'#475569'}}>{max}</span>
+      </div>
+    </div>
+  );
 }
 
 export default function DFSOptimizer() {
   const { players, loading } = useProjections();
-  const { optimize, simulateContest, SALARY_CAP, SALARY_MIN } = useDFSOptimizer(players);
+  const { optimize } = useDFSOptimizer(players);
 
-  // ── Pool filters ──
-  const [pos, setPos]           = useState('All');
-  const [search, setSearch]     = useState('');
-  const [sortKey, setSortKey]   = useState<SortKey>('proj_fpts');
-  const [sortAsc, setSortAsc]   = useState(false);
-  const [locked, setLocked]     = useState<Set<number>>(new Set());
+  const [tab, setTab] = useState<'minexp'|'maxexp'|'stacks'|'projections'|'players'>('players');
+  const [numLineups, setNum] = useState(20);
+  const [generating, setGen] = useState(false);
+  const [lineups, setLineups] = useState<any[][]>([]);
+  const [view, setView] = useState<'lineups'|'playerExp'|'teamExp'>('lineups');
+  const [showResults, setShowResults] = useState(false);
+  const [warn, setWarn] = useState('');
+
+  // Settings
+  const [defaultMaxExp, setMaxExp] = useState(100);
+  const [selectedStacks, setStacks] = useState<Set<string>>(new Set());
+  const [maxPerTeam] = useState(5);
+  const [maxOverlap, setOverlap] = useState(9);
+  const [avoidOpp, setAvoidOpp] = useState(false);
+  const [minSalary, setMinSal] = useState(49000);
+  const [maxSalary] = useState(50000);
+  const [maxOwn, setMaxOwn] = useState(1000);
+  const [locked, setLocked] = useState<Set<number>>(new Set());
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  const [posFilter, setPos] = useState('All');
+  const [search, setSearch] = useState('');
 
-  // ── Optimizer settings ──
-  const [numLineups, setNum]      = useState(20);
-  const [mode, setMode]           = useState<'cash'|'gpp'>('cash');
-  const [stackTeam, setStack]     = useState('');
-  const [selectedCombos, setSelectedCombos] = useState<Set<string>>(new Set()); // keys like '4-3-1'
-  const [minUnique, setUniq]      = useState(2);
-  const [minSalary, setMinSal]    = useState(49000);
-  const [maxExposure, setMaxExp]  = useState(100);
-  const [maxOwnership, setMaxOwn] = useState(0);
-  const [maxPerTeam, setMaxTeam]  = useState(10);
-  // Toggleable rules
-  const [ruleNoBvP, setNoBvP]     = useState(true);
-  const [ruleNoSameGameSPs, setNoSameSPs] = useState(true);
-  const [ruleMinSal, setRuleMinSal]       = useState(true);
-
-  // ── Output ──
-  const [lineups, setLineups]     = useState<any[]>([]);
-  const [activeIdx, setIdx]       = useState(0);
-  const [generating, setGen]      = useState(false);
-  const [warn, setWarn]           = useState('');
-
-  // ── Sim ──
-  const [simResults, setSimResults] = useState<any[]>([]);
-  const [simming, setSimming]       = useState(false);
-  const [fieldSize, setFieldSize]   = useState(1000);
-  const [showSim, setShowSim]       = useState(false);
-
-  const teams = useMemo(() =>
-    Array.from(new Set(players.map((p: any) => p.team).filter(Boolean))).sort() as string[],
-  [players]);
-
-  const filtered = useMemo(() => {
-    let list = [...players];
-    if (pos !== 'All') list = list.filter((p: any) => p.position === pos);
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter((p: any) =>
-        p.player_name?.toLowerCase().includes(q) || p.team?.toLowerCase().includes(q)
-      );
-    }
-    list.sort((a: any, b: any) => {
-      const va = a[sortKey] ?? 0, vb = b[sortKey] ?? 0;
-      if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
-      return sortAsc ? va - vb : vb - va;
-    });
-    return list;
-  }, [players, pos, search, sortKey, sortAsc]);
-
-  const posBreakdown = useMemo(() => {
-    const c: Record<string,number> = {};
-    players.forEach((p: any) => { c[p.position] = (c[p.position]||0)+1; });
-    return c;
-  }, [players]);
-
-  const sortBy = (k: SortKey) => {
-    if (sortKey === k) setSortAsc(x => !x);
-    else { setSortKey(k); setSortAsc(false); }
-  };
-
-  const toggleLock    = (id: number) => setLocked(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
-  const toggleExclude = (id: number) => setExcluded(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
-  const clearAll = () => { setLocked(new Set()); setExcluded(new Set()); };
+  const inp = {background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:6,color:'#e2e8f0',padding:'6px 10px',fontSize:13} as const;
+  const card = {background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:10,padding:20,marginBottom:16} as const;
 
   const generate = () => {
-    setGen(true); setWarn(''); setSimResults([]); setShowSim(false);
+    setGen(true); setWarn('');
     setTimeout(() => {
-      // Convert selected combo keys back to arrays, add [] for 'None'
-      const COMBO_MAP: Record<string, number[]> = {
-        'None': [], '4-3-1': [4,3,1], '4-2-2': [4,2,2], '4-2-1-1': [4,2,1,1],
-        '5-3': [5,3], '5-2-1': [5,2,1], '5-1-1-1': [5,1,1,1], '4-1-1-1-1': [4,1,1,1,1],
-        '3-2-2': [3,2,2], '3-2-1-1': [3,2,1,1],
-      };
-      const activeCombos = selectedCombos.size === 0
-        ? [[]] // no combo selected = no stack constraint
-        : Array.from(selectedCombos).map(k => COMBO_MAP[k] || []);
-
+      const activeCombos = selectedStacks.size === 0 ? [[]] : Array.from(selectedStacks).map(k => COMBO_MAP[k]||[]);
       const result = optimize({
-        locked:       Array.from(locked),
-        excluded:     Array.from(excluded),
-        numLineups,
-        stackTeam:    stackTeam || null,
-        stackCombos:  activeCombos,
-        mode,
-        minUnique,
-        minSalary,
-        maxExposure,
-        maxOwnership,
-        ruleNoBatterVsPitcher: ruleNoBvP,
-        ruleNoSameGameSPs,
-        ruleMinSalary: ruleMinSal,
+        locked: Array.from(locked), excluded: Array.from(excluded),
+        numLineups, stackCombos: activeCombos, mode: 'cash',
+        minUnique: maxOverlap < 9 ? 10 - maxOverlap : 0,
+        minSalary, maxExposure: defaultMaxExp,
+        maxOwnership: maxOwn < 1000 ? maxOwn : 0,
+        ruleNoBatterVsPitcher: avoidOpp,
+        ruleNoSameGameSPs: true, ruleMinSalary: false,
       });
-      setLineups(result);
-      setIdx(0);
-      setGen(false);
-      if (result.length === 0) {
-        setWarn('Could not build any valid lineups. Check your player pool has all positions with salary > 0. Try relaxing exposure or ownership limits.');
-      } else if (result.length < numLineups) {
-        setWarn(`Built ${result.length} of ${numLineups} lineups. Relax max exposure, min unique, or add more players.`);
-      }
+      setLineups(result.map((lu:any) => lu.players));
+      setGen(false); setShowResults(result.length > 0);
+      if (!result.length) setWarn('Could not build any valid lineups. Check your player pool has all positions with salary > 0.');
+      else if (result.length < numLineups) setWarn(`Built ${result.length} of ${numLineups} lineups.`);
+      else setWarn('');
     }, 50);
   };
 
-  const runSim = () => {
-    if (!lineups.length) return;
-    setSimming(true); setShowSim(true);
-    setTimeout(() => {
-      setSimResults(simulateContest(lineups, fieldSize) || []);
-      setSimming(false);
-    }, 50);
-  };
-
-  const cur = lineups[activeIdx];
-  const goTo = (i: number) => setIdx(Math.max(0, Math.min(lineups.length-1, i)));
-
-  // Exposure summary across all lineups
-  const exposureMap = useMemo(() => {
-    const m: Record<number, number> = {};
-    lineups.forEach(lu => lu.players.forEach((p: any) => { m[p.id] = (m[p.id]||0)+1; }));
-    return m;
+  const playerExp = useMemo(() => {
+    if (!lineups.length) return [];
+    const m: Record<number,{p:any,c:number}> = {};
+    lineups.forEach(lu => lu.forEach((p:any) => { if (!m[p.id]) m[p.id]={p,c:0}; m[p.id].c++; }));
+    return Object.values(m).map(({p,c})=>({...p,expPct:Math.round(c/lineups.length*100)})).sort((a,b)=>b.expPct-a.expPct);
   }, [lineups]);
 
-  const SortTh = ({ label, k }: { label: string; k: SortKey }) => (
-    <th onClick={() => sortBy(k)} style={{ cursor:'pointer', userSelect:'none', whiteSpace:'nowrap', fontSize: 11 }}>
-      {label}{sortKey===k ? (sortAsc?' ↑':' ↓') : ''}
-    </th>
-  );
+  const teamExp = useMemo(() => {
+    if (!lineups.length) return [];
+    const m: Record<string,number> = {};
+    lineups.forEach(lu => { const ts=new Set(lu.map((p:any)=>p.team)); ts.forEach(t=>{ m[t as string]=(m[t as string]||0)+1; }); });
+    return Object.entries(m).map(([team,c])=>({team,expPct:Math.round(c/lineups.length*100)})).sort((a,b)=>b.expPct-a.expPct);
+  }, [lineups]);
 
-  const hasSalary    = players.some((p: any) => (p.salary||0) > 0);
-  const hasPositions = players.some((p: any) => p.position && p.position !== '');
+  const filteredPlayers = useMemo(() => players.filter((p:any) => {
+    if (posFilter !== 'All' && p.position !== posFilter) return false;
+    if (search && !p.player_name?.toLowerCase().includes(search.toLowerCase()) && !p.team?.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  }), [players, posFilter, search]);
 
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'1fr 400px', gap:16, alignItems:'start' }}>
-
-      {/* ── Player Pool ── */}
-      <div>
-        {/* Warning */}
-        {!loading && players.length > 0 && (!hasSalary || !hasPositions) && (
-          <div style={{ background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:6, padding:'10px 12px', fontSize:12, color:'#fbbf24', marginBottom:12, lineHeight:1.7 }}>
-            <strong>Missing data</strong> — Upload DraftKings salary CSV first (sets positions + salary), then upload theBatX files.
-          </div>
-        )}
-
-        <div className="card" style={{ padding:16 }}>
-          {/* Filters */}
-          <div style={{ display:'flex', gap:8, marginBottom:10, flexWrap:'wrap', alignItems:'center' }}>
-            <input className="input-field" style={{ maxWidth:190, padding:'5px 10px', fontSize:12 }}
-              placeholder="Search name or team..." value={search} onChange={e => setSearch(e.target.value)} />
-            <select className="input-field" style={{ width:80 }} value={pos} onChange={e => setPos(e.target.value)}>
-              {ALL_POS.map(p => <option key={p}>{p}</option>)}
-            </select>
-            <span style={{ fontSize:12, color:'#64748b', marginLeft:'auto' }}>{filtered.length}/{players.length}</span>
-            {(locked.size>0||excluded.size>0) && (
-              <>
-                {locked.size>0 && <span style={{ fontSize:12, color:'#f59e0b' }}>{locked.size} locked</span>}
-                {excluded.size>0 && <span style={{ fontSize:12, color:'#ef4444' }}>{excluded.size} excluded</span>}
-                <button onClick={clearAll} style={{ background:'none', border:'none', color:'#64748b', cursor:'pointer', fontSize:12, textDecoration:'underline' }}>Clear</button>
-              </>
-            )}
-          </div>
-
-          {loading ? <LoadingSkeleton rows={10} cols={7} /> : players.length===0 ? (
-            <EmptyState message="Upload projections in Admin to populate the optimizer." />
-          ) : (
-            <div style={{ maxHeight:500, overflowY:'auto' }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th style={{ width:28 }}>L</th>
-                    <SortTh label="Player" k="player_name" />
-                    <th>Pos</th>
-                    <SortTh label="Sal" k="salary" />
-                    <SortTh label="Proj" k="proj_fpts" />
-                    <SortTh label="Floor" k="proj_floor" />
-                    <SortTh label="Ceil" k="proj_ceiling" />
-                    <SortTh label="Own%" k="proj_ownership" />
-                    <SortTh label="Val" k="valueRating" />
-                    {lineups.length > 0 && <th style={{ fontSize:10 }}>Exp%</th>}
-                    <th style={{ width:28 }}>X</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((p: any) => {
-                    const isL = locked.has(p.id);
-                    const isX = excluded.has(p.id);
-                    const own = p.proj_ownership || 0;
-                    const exp = lineups.length > 0 ? Math.round(((exposureMap[p.id]||0)/lineups.length)*100) : null;
-                    return (
-                      <tr key={p.id} style={{ opacity:isX?0.2:1, background:isL?'rgba(245,158,11,0.04)':'' }}>
-                        <td>
-                          <button onClick={() => toggleLock(p.id)} style={{
-                            width:22,height:22,borderRadius:4,cursor:'pointer',
-                            border:`1px solid ${isL?'#f59e0b':'rgba(255,255,255,0.1)'}`,
-                            background:isL?'rgba(245,158,11,0.15)':'transparent',
-                            color:isL?'#f59e0b':'#475569',fontSize:10,fontWeight:700,
-                          }}>{isL?'L':'–'}</button>
-                        </td>
-                        <td>
-                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <TeamLogo abbr={p.team||'?'} size={18} />
-                            <div>
-                              <div style={{ fontSize:12, fontWeight:500 }}>{p.player_name}</div>
-                              <div style={{ fontSize:10, color:'#475569' }}>{p.team}{p.lineup_pos ? ` · LP${p.lineup_pos}` : ''}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td><PosBadge pos={p.position||'?'} /></td>
-                        <td style={{ fontFamily:"'Barlow Condensed',sans-serif", fontWeight:600, fontSize:12, color:p.salary>0?'#e2e8f0':'#334155' }}>
-                          {p.salary>0?fmt$(p.salary):'—'}
-                        </td>
-                        <td><span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700, color:'#60a5fa', fontSize:14 }}>{(p.proj_fpts||0).toFixed(1)}</span></td>
-                        <td style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:11, color:'#64748b' }}>
-                          {p.proj_floor>0?p.proj_floor.toFixed(1):'—'}
-                        </td>
-                        <td style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:11, color:'#94a3b8' }}>
-                          {p.proj_ceiling>0?p.proj_ceiling.toFixed(1):'—'}
-                        </td>
-                        <td><span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:12, color:ownColor(own) }}>{own>0?`${own.toFixed(1)}%`:'—'}</span></td>
-                        <td><span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:12, color:valColor(p.valueRating||0) }}>{p.valueRating>0?p.valueRating.toFixed(2):'—'}</span></td>
-                        {lineups.length > 0 && (
-                          <td style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:11,
-                            color: exp !== null && exp > maxExposure ? '#ef4444' : '#64748b' }}>
-                            {exp !== null && exp > 0 ? `${exp}%` : '—'}
-                          </td>
-                        )}
-                        <td>
-                          <button onClick={() => toggleExclude(p.id)} style={{
-                            width:22,height:22,borderRadius:4,cursor:'pointer',
-                            border:`1px solid ${isX?'rgba(34,197,94,0.3)':'rgba(239,68,68,0.2)'}`,
-                            background:isX?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.06)',
-                            color:isX?'#22c55e':'#ef4444',fontSize:10,fontWeight:700,
-                          }}>{isX?'+':'X'}</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Position coverage */}
-          {players.length>0 && (
-            <div style={{ display:'flex', gap:6, marginTop:10, flexWrap:'wrap' }}>
-              {['SP','C','1B','2B','3B','SS','OF'].map(p => (
-                <div key={p} style={{
-                  padding:'2px 8px', borderRadius:4, fontSize:11,
-                  fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
-                  background:(posBreakdown[p]||0)>0?'rgba(34,197,94,0.08)':'rgba(239,68,68,0.08)',
-                  color:(posBreakdown[p]||0)>0?'#22c55e':'#ef4444',
-                  border:`1px solid ${(posBreakdown[p]||0)>0?'rgba(34,197,94,0.2)':'rgba(239,68,68,0.2)'}`,
-                }}>
-                  {p} {posBreakdown[p]||0}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+    <div style={{maxWidth:900,margin:'0 auto',padding:'0 0 90px 0'}}>
+      {/* Top nav */}
+      <div style={{display:'flex',gap:4,marginBottom:20,background:'rgba(0,0,0,0.3)',borderRadius:12,padding:6}}>
+        {([
+          {key:'minexp' as const,icon:'🔒',label:'Min Exp'},
+          {key:'maxexp' as const,icon:'%',label:'Max Exp'},
+          {key:'stacks' as const,icon:'📊',label:'Stacks'},
+          {key:'projections' as const,icon:'📈',label:'Projections'},
+          {key:'players' as const,icon:'👥',label:'Players'},
+        ]).map(t=>(
+          <button key={t.key} onClick={()=>setTab(t.key)} style={TAB(tab===t.key)}>
+            <span style={{fontSize:18}}>{t.icon}</span>
+            <span>{t.label}</span>
+          </button>
+        ))}
       </div>
 
-      {/* ── Settings + Output ── */}
-      <div>
-        <div className="card" style={{ padding:16, marginBottom:12 }}>
-          <div className="section-label">Optimizer Settings</div>
-
-          {/* Contest mode */}
-          <div style={{ marginBottom:14 }}>
-            <div style={{ fontSize:12, color:'#94a3b8', marginBottom:6 }}>Contest type</div>
-            <div style={{ display:'flex', gap:6 }}>
-              {(['cash','gpp'] as const).map(m => (
-                <button key={m} onClick={() => setMode(m)} style={{
-                  flex:1, padding:'8px 0', borderRadius:6, cursor:'pointer',
-                  border:`1px solid ${mode===m?(m==='cash'?'rgba(34,197,94,0.5)':'rgba(196,30,58,0.5)'):'rgba(255,255,255,0.08)'}`,
-                  background:mode===m?(m==='cash'?'rgba(34,197,94,0.08)':'rgba(196,30,58,0.08)'):'transparent',
-                  color:mode===m?(m==='cash'?'#22c55e':'#f06070'):'#64748b',
-                  fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,fontSize:13,
-                }}>
-                  {m==='cash'?'Cash / 50-50':'GPP / Tournament'}
-                </button>
-              ))}
-            </div>
-            <div style={{ fontSize:11, color:'#475569', marginTop:5, lineHeight:1.5 }}>
-              {mode==='cash'
-                ? 'Maximizes floor — picks highest projected floor players per dollar'
-                : 'Maximizes ceiling leverage — rewards low-owned high-ceiling plays'}
-            </div>
+      {/* Min Exp */}
+      {tab==='minexp' && (
+        <div style={card}>
+          <h3 style={{fontSize:15,fontWeight:700,marginBottom:4}}>Minimum Exposure</h3>
+          <p style={{fontSize:12,color:'#64748b',marginBottom:16}}>Lock a player into a slot or set minimum exposure.</p>
+          <div style={{display:'grid',gridTemplateColumns:'50px 1fr 130px',gap:10,alignItems:'center',marginBottom:8}}>
+            <span style={{fontSize:11,color:'#64748b',fontWeight:600}}>Slot</span>
+            <span style={{fontSize:11,color:'#64748b',fontWeight:600}}>Player</span>
+            <span style={{fontSize:11,color:'#64748b',fontWeight:600,textAlign:'center' as const}}>Min Exposure</span>
           </div>
-
-          {/* Row 1: Lineups + Unique */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-            <div>
-              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Lineups (1–150)</div>
-              <input className="input-field" type="number" min={1} max={150}
-                value={numLineups} onChange={e => setNum(Math.min(150,Math.max(1,+e.target.value)))} />
-            </div>
-            <div>
-              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Min unique players</div>
-              <input className="input-field" type="number" min={0} max={9}
-                value={minUnique} onChange={e => setUniq(Math.min(9,Math.max(0,+e.target.value)))} />
-            </div>
-          </div>
-
-          {/* Row 2: Salary */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-            <div>
-              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Min salary</div>
-              <input className="input-field" type="number" min={40000} max={50000} step={100}
-                value={minSalary} onChange={e => setMinSal(Math.min(50000,Math.max(40000,+e.target.value)))} />
-              <div style={{ fontSize:10, color:'#475569', marginTop:2 }}>Default $49,000</div>
-            </div>
-            <div>
-              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Max per team</div>
-              <input className="input-field" type="number" min={2} max={8}
-                value={maxPerTeam} onChange={e => setMaxTeam(Math.min(8,Math.max(2,+e.target.value)))} />
-              <div style={{ fontSize:10, color:'#475569', marginTop:2 }}>Max hitters from 1 team</div>
-            </div>
-          </div>
-
-          {/* Row 3: Exposure + Ownership */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-            <div>
-              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Max exposure %</div>
-              <input className="input-field" type="number" min={1} max={100}
-                value={maxExposure} onChange={e => setMaxExp(Math.min(100,Math.max(1,+e.target.value)))} />
-              <div style={{ fontSize:10, color:'#475569', marginTop:2 }}>
-                {maxExposure===100?'No limit':`Max ${Math.floor(maxExposure/100*numLineups)}/${numLineups} lineups`}
+          {SLOTS.map((slot,i)=>(
+            <div key={i} style={{display:'grid',gridTemplateColumns:'50px 1fr 130px',gap:10,alignItems:'center',marginBottom:8}}>
+              <span style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{slot}</span>
+              <select style={{...inp,width:'100%'}} defaultValue="">
+                <option value="">Optimize</option>
+                {players.filter((p:any)=>slot==='P'?p.position==='SP':p.position===slot)
+                  .sort((a:any,b:any)=>b.proj_fpts-a.proj_fpts).slice(0,30)
+                  .map((p:any)=><option key={p.id} value={p.id}>{p.player_name} ({p.team})</option>)}
+              </select>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <input type="range" min={0} max={100} defaultValue={100} style={{flex:1,accentColor:'#2dd4bf'}}/>
+                <span style={{fontSize:12,color:'#2dd4bf',fontWeight:700,width:38,textAlign:'right' as const}}>100%</span>
               </div>
             </div>
-            <div>
-              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Max own% (GPP)</div>
-              <input className="input-field" type="number" min={0} max={100}
-                value={maxOwnership} onChange={e => setMaxOwn(Math.min(100,Math.max(0,+e.target.value)))} />
-              <div style={{ fontSize:10, color:'#475569', marginTop:2 }}>
-                {maxOwnership===0?'No limit':`Skip players >${maxOwnership}% owned`}
-              </div>
-            </div>
-          </div>
+          ))}
+        </div>
+      )}
 
-          {/* Stack combos — multi-select checkboxes */}
-          <div style={{ marginBottom:12 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-              <div style={{ fontSize:12, color:'#94a3b8' }}>Stack combinations</div>
-              <div style={{ display:'flex', gap:8 }}>
-                <button onClick={() => setSelectedCombos(new Set(['4-3-1','4-2-2','5-3','5-2-1','3-2-2']))}
-                  style={{ fontSize:10, color:'#475569', background:'none', border:'none', cursor:'pointer', textDecoration:'underline' }}>
-                  Common
-                </button>
-                <button onClick={() => setSelectedCombos(new Set())}
-                  style={{ fontSize:10, color:'#475569', background:'none', border:'none', cursor:'pointer', textDecoration:'underline' }}>
-                  Clear
-                </button>
-              </div>
-            </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5 }}>
-              {[
-                { label:'None (no stack)', key:'None' },
-                { label:'4-3-1', key:'4-3-1' },
-                { label:'4-2-2', key:'4-2-2' },
-                { label:'4-2-1-1', key:'4-2-1-1' },
-                { label:'5-3', key:'5-3' },
-                { label:'5-2-1', key:'5-2-1' },
-                { label:'5-1-1-1', key:'5-1-1-1' },
-                { label:'4-1-1-1-1', key:'4-1-1-1-1' },
-                { label:'3-2-2', key:'3-2-2' },
-                { label:'3-2-1-1', key:'3-2-1-1' },
-              ].map(({ label, key }) => {
-                const checked = selectedCombos.has(key);
-                return (
-                  <label key={key} style={{ display:'flex', alignItems:'center', gap:7, cursor:'pointer', padding:'4px 6px',
-                    borderRadius:5, background:checked?'rgba(96,165,250,0.06)':'transparent',
-                    border:`1px solid ${checked?'rgba(96,165,250,0.25)':'rgba(255,255,255,0.06)'}` }}>
-                    <input type="checkbox" checked={checked}
-                      onChange={() => {
-                        const n = new Set(selectedCombos);
-                        checked ? n.delete(key) : n.add(key);
-                        setSelectedCombos(n);
-                      }}
-                      style={{ accentColor:'#60a5fa', width:13, height:13, flexShrink:0 }} />
-                    <span style={{ fontSize:11, fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
-                      color:checked?'#60a5fa':'#64748b' }}>{label}</span>
-                  </label>
-                );
-              })}
-            </div>
-            {selectedCombos.size > 0 && !selectedCombos.has('None') && (
-              <div style={{ marginTop:8 }}>
-                <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Anchor team (optional)</div>
-                <select className="input-field" value={stackTeam} onChange={e => setStack(e.target.value)}>
-                  <option value="">Auto — varies per lineup</option>
-                  {teams.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <div style={{ fontSize:11, color:'#475569', marginTop:4 }}>
-                  {selectedCombos.size} combo{selectedCombos.size>1?'s':''} selected — rotated across {numLineups} lineups.
-                  {stackTeam ? ` ${stackTeam} anchors every lineup.` : ' Best team anchors each lineup.'}
-                </div>
-              </div>
-            )}
-          </div>
-
-
-
-          {/* Toggleable rules */}
-          <div style={{ marginBottom:12, padding:'8px 10px', background:'rgba(255,255,255,0.03)', borderRadius:6 }}>
-            <div style={{ fontSize:11, color:'#64748b', fontWeight:600, marginBottom:8 }}>RULES</div>
-            {[
-              { label:'No batters vs own pitcher',  val:ruleNoBvP,       set:setNoBvP,       recommended:true },
-              { label:'No two SPs from same game',  val:ruleNoSameGameSPs, set:setNoSameSPs, recommended:true },
-              { label:'Skip min-salary busts (<$3.5k, <7 FP)', val:ruleMinSal, set:setRuleMinSal, recommended:false },
-              { label:'No duplicate lineups',       val:true,            set:()=>{},         recommended:true, locked:true },
-            ].map(rule => (
-              <div key={rule.label} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-                <button
-                  onClick={() => !rule.locked && rule.set(!rule.val)}
-                  style={{
-                    width:32, height:18, borderRadius:9, border:'none', cursor:rule.locked?'default':'pointer',
-                    background:rule.val ? '#c41e3a' : 'rgba(255,255,255,0.1)',
-                    position:'relative', flexShrink:0, transition:'background .15s',
-                    opacity:rule.locked ? 0.5 : 1,
-                  }}>
-                  <div style={{
-                    position:'absolute', top:2, width:14, height:14, borderRadius:'50%',
-                    background:'white', transition:'left .15s',
-                    left:rule.val ? 16 : 2,
-                  }} />
-                </button>
-                <span style={{ fontSize:11, color:rule.val ? '#e2e8f0' : '#475569' }}>{rule.label}</span>
-                {rule.recommended && <span style={{ fontSize:10, color:'#334155', marginLeft:'auto' }}>rec</span>}
+      {/* Max Exp */}
+      {tab==='maxexp' && (
+        <div style={card}>
+          <h3 style={{fontSize:15,fontWeight:700,marginBottom:4}}>Maximum Exposure</h3>
+          <p style={{fontSize:12,color:'#64748b',marginBottom:20}}>Limit how often any player appears across your lineups.</p>
+          <Slider label="Default Max Exposure %" value={defaultMaxExp} min={1} max={100} onChange={setMaxExp}/>
+          <div style={{marginTop:20}}>
+            <div style={{fontSize:13,fontWeight:600,color:'#94a3b8',marginBottom:8}}>Custom Max Exposure per Player</div>
+            {playerExp.length===0 && <p style={{fontSize:12,color:'#334155'}}>Generate lineups first to see players here.</p>}
+            {playerExp.slice(0,15).map((p:any)=>(
+              <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                <span style={{fontSize:12,flex:1}}>{p.player_name} <span style={{color:'#475569'}}>({p.team})</span></span>
+                <input type="number" min={0} max={100} defaultValue={defaultMaxExp} style={{...inp,width:70,textAlign:'center' as const}}/>
+                <span style={{fontSize:11,color:'#475569'}}>%</span>
               </div>
             ))}
           </div>
-
-          <button className="btn-primary" style={{ width:'100%', padding:12, fontSize:14 }}
-            onClick={generate} disabled={players.length===0||generating}>
-            {generating ? 'Building...' : `Generate ${numLineups} lineup${numLineups!==1?'s':''}`}
-          </button>
-
-          {players.length===0 && (
-            <div style={{ fontSize:11, color:'#475569', marginTop:8, textAlign:'center' }}>
-              Upload projections in Admin first
-            </div>
-          )}
-          {warn && (
-            <div style={{ marginTop:10, background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:6, padding:'8px 12px', fontSize:12, color:'#fbbf24', lineHeight:1.5 }}>
-              {warn}
-            </div>
-          )}
         </div>
+      )}
 
-        {/* Generated lineups */}
-        {lineups.length>0 && (
-          <div className="card" style={{ padding:16, marginBottom:12 }}>
-            {/* Navigator */}
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-              <button onClick={() => goTo(activeIdx-1)} disabled={activeIdx===0} style={{
-                width:32,height:32,borderRadius:6,cursor:activeIdx===0?'not-allowed':'pointer',
-                border:'1px solid rgba(255,255,255,0.1)',background:'transparent',
-                color:activeIdx===0?'#2a2a2a':'#94a3b8',fontSize:18,lineHeight:1,
-              }}>←</button>
-              <div style={{ textAlign:'center' }}>
-                <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:16, fontWeight:700 }}>
-                  Lineup {activeIdx+1} of {lineups.length}
-                </div>
-                <div style={{ fontSize:11, color:'#475569' }}>
-                  {mode==='cash'?'Cash':'GPP'}{stackTeam?` · ${stackTeam} ${stackSize}-stack`:''}
-                </div>
-              </div>
-              <button onClick={() => goTo(activeIdx+1)} disabled={activeIdx===lineups.length-1} style={{
-                width:32,height:32,borderRadius:6,cursor:activeIdx===lineups.length-1?'not-allowed':'pointer',
-                border:'1px solid rgba(255,255,255,0.1)',background:'transparent',
-                color:activeIdx===lineups.length-1?'#2a2a2a':'#94a3b8',fontSize:18,lineHeight:1,
-              }}>→</button>
-            </div>
-
-            {/* Dots */}
-            {lineups.length>1 && lineups.length<=30 && (
-              <div style={{ display:'flex', gap:4, justifyContent:'center', marginBottom:12, flexWrap:'wrap' }}>
-                {lineups.map((_,i) => (
-                  <button key={i} onClick={() => setIdx(i)} style={{
-                    width:8,height:8,borderRadius:'50%',padding:0,border:'none',cursor:'pointer',
-                    background:i===activeIdx?'#c41e3a':'rgba(255,255,255,0.15)',
-                  }} />
-                ))}
-              </div>
-            )}
-
-            {cur && (
-              <>
-                {/* Stats */}
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:0, marginBottom:12, background:'rgba(255,255,255,0.03)', borderRadius:8, overflow:'hidden' }}>
-                  {[
-                    { label:'Proj FP',  val:cur.projFpts?.toFixed(1), color:'#22c55e' },
-                    { label:'Salary',   val:fmt$(cur.totalSalary), color:cur.totalSalary>50000?'#ef4444':'#e2e8f0' },
-                    { label:'Rem',      val:fmt$(50000-cur.totalSalary), color:'#64748b' },
-                    { label:'Cap Used', val:`${((cur.totalSalary/50000)*100).toFixed(1)}%`, color:cur.totalSalary>=49000?'#22c55e':'#f59e0b' },
-                  ].map((m,i) => (
-                    <div key={m.label} style={{ textAlign:'center', padding:'8px 4px', borderRight:i<3?'1px solid rgba(255,255,255,0.05)':'none' }}>
-                      <div style={{ fontSize:9, color:'#475569', fontFamily:"'Barlow Condensed',sans-serif", textTransform:'uppercase', letterSpacing:'.08em' }}>{m.label}</div>
-                      <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:16, fontWeight:700, color:m.color, marginTop:2 }}>{m.val}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Players */}
-                {[...cur.players]
-                  .sort((a: any, b: any) => (POS_ORDER[a.position]??9)-(POS_ORDER[b.position]??9))
-                  .map((p: any) => {
-                    const exp = lineups.length > 1 ? Math.round(((exposureMap[p.id]||0)/lineups.length)*100) : null;
-                    return (
-                      <div key={p.id} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
-                        <div style={{ width:32, flexShrink:0 }}><PosBadge pos={p.position||'?'} /></div>
-                        <TeamLogo abbr={p.team||'?'} size={18} />
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:12, fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{p.player_name}</div>
-                          <div style={{ fontSize:10, color:'#475569' }}>{p.team}{p.lineup_pos?` · LP${p.lineup_pos}`:''}</div>
-                        </div>
-                        {exp !== null && (
-                          <div style={{ fontSize:10, fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
-                            color:exp>maxExposure?'#ef4444':exp>0?'#64748b':'transparent', flexShrink:0 }}>
-                            {exp>0?`${exp}%`:''}
-                          </div>
-                        )}
-                        <div style={{ textAlign:'right', flexShrink:0 }}>
-                          <div style={{ fontFamily:"'Barlow Condensed',sans-serif", color:'#60a5fa', fontWeight:700, fontSize:14 }}>{(p.proj_fpts||0).toFixed(1)}</div>
-                          <div style={{ fontSize:10, color:'#475569' }}>{p.salary>0?fmt$(p.salary):'—'}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                <div style={{ display:'flex', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTop:'1px solid rgba(255,255,255,0.07)' }}>
-                  <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, color:'#475569' }}>TOTAL</span>
-                  <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:17, fontWeight:700, color:'#22c55e' }}>{cur.projFpts?.toFixed(1)} FP</span>
-                </div>
-
-                {/* Download */}
-                <button onClick={() => downloadLineups(lineups)} className="btn-outline"
-                  style={{ width:'100%', marginTop:12, fontSize:13, padding:'8px 0' }}>
-                  ⬇ Download {lineups.length} lineup{lineups.length!==1?'s':''} (.csv — DK Edit Entries format)
-                </button>
-
-                {/* Contest Sim */}
-                <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:6 }}>
-                    <div style={{ fontSize:12, color:'#94a3b8', flexShrink:0 }}>Field size</div>
-                    <input className="input-field" type="number" min={10} max={200000}
-                      value={fieldSize} onChange={e => setFieldSize(Math.max(10,+e.target.value))}
-                      style={{ width:90 }} />
-                    <button className="btn-outline" onClick={runSim} disabled={simming}
-                      style={{ flex:1, fontSize:12, padding:'6px 0' }}>
-                      {simming ? '⏳ Simulating...' : '🎲 Contest Sim'}
-                    </button>
-                  </div>
-                  <div style={{ fontSize:11, color:'#475569' }}>
-                    Monte Carlo sim vs {fieldSize.toLocaleString()}-person field (500 iterations)
-                  </div>
-                </div>
-              </>
-            )}
+      {/* Stacks */}
+      {tab==='stacks' && (
+        <div style={card}>
+          <h3 style={{fontSize:15,fontWeight:700,marginBottom:4}}>Stacks</h3>
+          <p style={{fontSize:12,color:'#64748b',marginBottom:16}}>Select one or more stack patterns. Rotated across lineups.</p>
+          <div style={{fontSize:13,fontWeight:600,color:'#94a3b8',marginBottom:10}}>Common Stacks</div>
+          <div style={{display:'flex',gap:8,marginBottom:20}}>
+            {['4-3 Team Stack','4-4 Team Stack'].map(k=>(
+              <button key={k} onClick={()=>{const n=new Set(selectedStacks);n.has(k)?n.delete(k):n.add(k);setStacks(n);}} style={{
+                padding:'8px 20px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:600,
+                border:`1px solid ${selectedStacks.has(k)?'#2dd4bf':'rgba(255,255,255,0.12)'}`,
+                background:selectedStacks.has(k)?'rgba(45,212,191,0.1)':'transparent',
+                color:selectedStacks.has(k)?'#2dd4bf':'#94a3b8',
+              }}>{k}</button>
+            ))}
           </div>
-        )}
-
-        {/* Contest Sim Results */}
-        {showSim && simResults.length>0 && (
-          <div className="card" style={{ padding:16 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-              <div className="section-label" style={{ marginBottom:0 }}>Contest Sim — {fieldSize.toLocaleString()} field</div>
-              <button onClick={() => setShowSim(false)} style={{ background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:18 }}>×</button>
-            </div>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
-              {[
-                { label:'Avg Win%',   val:`${(simResults.reduce((s,r)=>s+r.winPct,0)/simResults.length).toFixed(1)}%`,   color:'#22c55e' },
-                { label:'Avg Top 10%',val:`${(simResults.reduce((s,r)=>s+r.top10Pct,0)/simResults.length).toFixed(1)}%`, color:'#60a5fa' },
-                { label:'Avg Top 25%',val:`${(simResults.reduce((s,r)=>s+r.top25Pct,0)/simResults.length).toFixed(1)}%`, color:'#f59e0b' },
-              ].map(m => (
-                <div key={m.label} style={{ textAlign:'center', background:'rgba(255,255,255,0.03)', borderRadius:6, padding:'8px 4px' }}>
-                  <div style={{ fontSize:10, color:'#475569', fontFamily:"'Barlow Condensed',sans-serif", textTransform:'uppercase', letterSpacing:'.06em' }}>{m.label}</div>
-                  <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:20, fontWeight:700, color:m.color }}>{m.val}</div>
-                </div>
+          <div style={{fontSize:13,fontWeight:600,color:'#94a3b8',marginBottom:10}}>Custom Stacks</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:20}}>
+            {Object.keys(COMBO_MAP).filter(k=>!['4-3 Team Stack','4-4 Team Stack'].includes(k)).map(k=>(
+              <label key={k} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:8,cursor:'pointer',
+                border:`1px solid ${selectedStacks.has(k)?'rgba(45,212,191,0.4)':'rgba(255,255,255,0.06)'}`,
+                background:selectedStacks.has(k)?'rgba(45,212,191,0.06)':'transparent'}}>
+                <input type="checkbox" checked={selectedStacks.has(k)}
+                  onChange={()=>{const n=new Set(selectedStacks);n.has(k)?n.delete(k):n.add(k);setStacks(n);}}
+                  style={{accentColor:'#2dd4bf'}}/>
+                <span style={{fontSize:12,fontWeight:700,color:selectedStacks.has(k)?'#2dd4bf':'#64748b'}}>{k}</span>
+              </label>
+            ))}
+          </div>
+          <div style={{fontSize:13,fontWeight:600,color:'#94a3b8',marginBottom:10}}>Per-Team Player Limits</div>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',background:'rgba(255,255,255,0.04)',borderRadius:8}}>
+            <span style={{fontSize:13,flex:1}}>Limit to <strong style={{color:'#2dd4bf'}}>{maxPerTeam}</strong> offensive players from any given team.</span>
+            <div style={{display:'flex',gap:6}}>
+              {[3,4,5,6,7].map(n=>(
+                <button key={n} style={{width:32,height:32,borderRadius:6,
+                  border:`1px solid ${n===maxPerTeam?'#2dd4bf':'rgba(255,255,255,0.1)'}`,
+                  background:n===maxPerTeam?'rgba(45,212,191,0.1)':'transparent',
+                  color:n===maxPerTeam?'#2dd4bf':'#64748b',cursor:'pointer',fontSize:12,fontWeight:700}}>{n}</button>
               ))}
             </div>
-            <div style={{ maxHeight:280, overflowY:'auto' }}>
-              <table className="data-table" style={{ fontSize:11 }}>
-                <thead><tr>
-                  <th>#</th><th>Avg FP</th><th>Floor</th><th>Ceil</th>
-                  <th style={{ color:'#22c55e' }}>Win%</th>
-                  <th style={{ color:'#60a5fa' }}>Top10</th>
-                  <th style={{ color:'#f59e0b' }}>Top25</th>
-                  <th>Score</th>
-                </tr></thead>
+          </div>
+        </div>
+      )}
+
+      {/* Projections */}
+      {tab==='projections' && (
+        <div style={card}>
+          <h3 style={{fontSize:15,fontWeight:700,marginBottom:4}}>Projections</h3>
+          <p style={{fontSize:12,color:'#64748b',marginBottom:16}}>Add variability to projections for more diverse lineups.</p>
+          <div style={{fontSize:13,fontWeight:600,color:'#94a3b8',marginBottom:12}}>Projection Variability (%)</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:10,marginBottom:24}}>
+            {['P','C','1B','2B','3B','SS','OF'].map(pos=>(
+              <div key={pos}>
+                <div style={{fontSize:11,color:'#64748b',textAlign:'center' as const,marginBottom:4}}>{pos}</div>
+                <input type="number" min={0} max={50} defaultValue={0} style={{...inp,textAlign:'center' as const,padding:'6px 4px',width:'100%'}}/>
+              </div>
+            ))}
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(255,255,255,0.12)',background:'transparent',color:'#94a3b8',cursor:'pointer',fontSize:13}}>Edit Projections</button>
+            <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(45,212,191,0.4)',background:'rgba(45,212,191,0.06)',color:'#2dd4bf',cursor:'pointer',fontSize:13,fontWeight:600}}>↑ Upload Projections</button>
+          </div>
+          {players.length>0 && <div style={{marginTop:10,fontSize:12,color:'#475569',textAlign:'center' as const}}>{players.length} players loaded</div>}
+        </div>
+      )}
+
+      {/* Players */}
+      {tab==='players' && (
+        <>
+          <div style={card}>
+            <h3 style={{fontSize:15,fontWeight:700,marginBottom:16}}>Players</h3>
+            <Slider label="Max Player Overlap" value={maxOverlap} min={0} max={9} onChange={setOverlap}/>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,margin:'16px 0'}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:'rgba(255,255,255,0.03)',borderRadius:8}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600}}>Avoid Opposing Pitcher</div>
+                  <div style={{fontSize:11,color:'#475569'}}>No batters vs your SPs</div>
+                </div>
+                <Toggle val={avoidOpp} onClick={()=>setAvoidOpp(v=>!v)}/>
+              </div>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:'rgba(255,255,255,0.03)',borderRadius:8}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600}}>Show No Projection</div>
+                  <div style={{fontSize:11,color:'#475569'}}>Include unranked players</div>
+                </div>
+                <Toggle val={false} onClick={()=>{}}/>
+              </div>
+            </div>
+            <div style={{fontSize:13,fontWeight:600,color:'#94a3b8',marginBottom:10}}>Salary Range</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:12,alignItems:'center',marginBottom:20}}>
+              <div><div style={{fontSize:11,color:'#64748b',marginBottom:4}}>Min Total Salary</div>
+                <input type="number" value={minSalary} onChange={e=>setMinSal(+e.target.value)} style={{...inp,width:'100%'}}/></div>
+              <div style={{textAlign:'center' as const,color:'#475569',fontSize:12}}>Range ($)</div>
+              <div><div style={{fontSize:11,color:'#64748b',marginBottom:4}}>Max Total Salary</div>
+                <input type="number" value={50000} readOnly style={{...inp,width:'100%',opacity:.6}}/></div>
+            </div>
+          </div>
+          <div style={card}>
+            <h3 style={{fontSize:15,fontWeight:700,marginBottom:16}}>Ownership</h3>
+            <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:12,alignItems:'center',marginBottom:16}}>
+              <div><div style={{fontSize:11,color:'#64748b',marginBottom:4}}>Min Total Ownership %</div>
+                <input type="number" defaultValue={0} style={{...inp,width:'100%'}}/></div>
+              <div style={{textAlign:'center' as const,color:'#475569',fontSize:12}}>Range (%)</div>
+              <div><div style={{fontSize:11,color:'#64748b',marginBottom:4}}>Max Total Ownership %</div>
+                <input type="number" value={maxOwn} onChange={e=>setMaxOwn(+e.target.value)} style={{...inp,width:'100%'}}/></div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(255,255,255,0.12)',background:'transparent',color:'#94a3b8',cursor:'pointer',fontSize:13}}>Edit Ownership</button>
+              <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(45,212,191,0.4)',background:'rgba(45,212,191,0.06)',color:'#2dd4bf',cursor:'pointer',fontSize:13,fontWeight:600}}>↑ Upload Ownership Data</button>
+            </div>
+          </div>
+          {/* Player pool */}
+          <div style={card}>
+            <div style={{display:'flex',gap:8,marginBottom:12,alignItems:'center',flexWrap:'wrap' as const}}>
+              <h3 style={{fontSize:15,fontWeight:700,margin:0}}>Player Pool</h3>
+              <span style={{fontSize:12,color:'#475569',marginLeft:'auto'}}>{filteredPlayers.length} players</span>
+              <input placeholder="Search..." value={search} onChange={e=>setSearch(e.target.value)} style={{...inp,width:150}}/>
+              <select value={posFilter} onChange={e=>setPos(e.target.value)} style={{...inp,width:70}}>
+                {['All','SP','C','1B','2B','3B','SS','OF'].map(p=><option key={p}>{p}</option>)}
+              </select>
+              {(locked.size>0||excluded.size>0) && (
+                <button onClick={()=>{setLocked(new Set());setExcluded(new Set());}} style={{fontSize:12,color:'#64748b',background:'none',border:'none',cursor:'pointer',textDecoration:'underline'}}>Clear</button>
+              )}
+            </div>
+            {loading ? <div style={{textAlign:'center' as const,padding:40,color:'#475569'}}>Loading...</div>
+            : players.length===0 ? <div style={{textAlign:'center' as const,padding:40,color:'#475569'}}>Upload projections in Admin to load the player pool.</div>
+            : (
+              <div style={{maxHeight:450,overflowY:'auto' as const}}>
+                <table style={{width:'100%',borderCollapse:'collapse' as const,fontSize:12}}>
+                  <thead style={{position:'sticky' as const,top:0,background:'#141420'}}>
+                    <tr style={{borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
+                      <th style={{padding:'6px 8px',width:30}}/>
+                      <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#64748b',fontWeight:600,fontSize:11}}>Player</th>
+                      <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#64748b',fontWeight:600,fontSize:11}}>Pos</th>
+                      <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#64748b',fontWeight:600,fontSize:11}}>Sal</th>
+                      <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#64748b',fontWeight:600,fontSize:11}}>Proj</th>
+                      <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#64748b',fontWeight:600,fontSize:11}}>Own%</th>
+                      <th style={{padding:'6px 8px',width:30}}/>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPlayers.slice(0,150).map((p:any)=>{
+                      const isL=locked.has(p.id), isX=excluded.has(p.id);
+                      return (
+                        <tr key={p.id} style={{borderBottom:'1px solid rgba(255,255,255,0.04)',opacity:isX?0.3:1,background:isL?'rgba(45,212,191,0.04)':''}}>
+                          <td style={{padding:'5px 8px'}}>
+                            <button onClick={()=>{const n=new Set(locked);n.has(p.id)?n.delete(p.id):n.add(p.id);setLocked(n);}}
+                              style={{width:20,height:20,borderRadius:4,border:`1px solid ${isL?'#2dd4bf':'rgba(255,255,255,0.1)'}`,background:isL?'rgba(45,212,191,0.2)':'transparent',cursor:'pointer',fontSize:10,color:isL?'#2dd4bf':'#475569'}}>
+                              {isL?'✓':'+'}
+                            </button>
+                          </td>
+                          <td style={{padding:'5px 8px',fontWeight:500}}>{p.player_name} <span style={{color:'#475569'}}>({p.team})</span></td>
+                          <td style={{padding:'5px 8px',color:'#94a3b8'}}>{p.position}</td>
+                          <td style={{padding:'5px 8px'}}>${(p.salary||0).toLocaleString()}</td>
+                          <td style={{padding:'5px 8px',color:'#60a5fa',fontWeight:700}}>{(p.proj_fpts||0).toFixed(1)}</td>
+                          <td style={{padding:'5px 8px',color:'#94a3b8'}}>{p.proj_ownership>0?`${p.proj_ownership.toFixed(1)}%`:'—'}</td>
+                          <td style={{padding:'5px 8px'}}>
+                            <button onClick={()=>{const n=new Set(excluded);n.has(p.id)?n.delete(p.id):n.add(p.id);setExcluded(n);}}
+                              style={{width:20,height:20,borderRadius:4,border:`1px solid ${isX?'rgba(34,197,94,0.4)':'rgba(239,68,68,0.2)'}`,background:isX?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.04)',cursor:'pointer',fontSize:10,color:isX?'#22c55e':'#ef4444'}}>
+                              {isX?'+':'X'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Results modal */}
+      {showResults && lineups.length>0 && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:100,display:'flex',alignItems:'flex-start',justifyContent:'center',overflowY:'auto',padding:'30px 16px'}}>
+          <div style={{background:'#13131f',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,width:'100%',maxWidth:1300,padding:24}}>
+            <div style={{display:'flex',alignItems:'center',marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:700}}>Total number of lineups: {lineups.length}</div>
+              <button onClick={()=>setShowResults(false)} style={{marginLeft:'auto',background:'none',border:'none',color:'#94a3b8',cursor:'pointer',fontSize:22}}>×</button>
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:8,padding:'6px 12px',flex:1}}>
+                <span style={{fontSize:13,color:'#94a3b8'}}>lineups.csv</span>
+                <button onClick={()=>downloadCSV(lineups)} style={{marginLeft:'auto',background:'rgba(45,212,191,0.15)',border:'1px solid rgba(45,212,191,0.3)',borderRadius:6,color:'#2dd4bf',cursor:'pointer',padding:'4px 14px',fontSize:13,fontWeight:600}}>↓</button>
+              </div>
+              <button onClick={()=>{setLineups([]);setShowResults(false);}} style={{padding:'8px 20px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,color:'#ef4444',cursor:'pointer',fontSize:13}}>Clear Lineups</button>
+            </div>
+            <div style={{display:'flex',gap:4,marginBottom:16,borderBottom:'1px solid rgba(255,255,255,0.08)',paddingBottom:10}}>
+              {(['lineups','playerExp','teamExp'] as const).map(v=>(
+                <button key={v} onClick={()=>setView(v)} style={{
+                  padding:'6px 18px',borderRadius:8,border:'none',cursor:'pointer',fontSize:13,
+                  background:view===v?'rgba(45,212,191,0.15)':'transparent',
+                  color:view===v?'#2dd4bf':'#64748b',fontWeight:view===v?600:400}}>
+                  {v==='lineups'?'Lineups':v==='playerExp'?'Player Exp.':'Team Exp.'}
+                </button>
+              ))}
+            </div>
+            {view==='lineups' && (
+              <div style={{overflowX:'auto' as const}}>
+                <table style={{width:'100%',borderCollapse:'collapse' as const,fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
+                      <th style={{width:28}}/>
+                      {['P1','P2','C','1B','2B','3B','SS','OF1','OF2','OF3'].map(h=>(
+                        <th key={h} style={{padding:'6px 10px',textAlign:'left' as const,color:'#64748b',fontSize:11,fontWeight:600}}>{h}</th>
+                      ))}
+                      <th style={{padding:'6px 10px',textAlign:'right' as const,color:'#64748b',fontSize:11,fontWeight:600}}>PROJ. POINTS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lineups.map((roster,i)=>{
+                      const byPos: Record<string,any[]>={SP:[],C:[],  '1B':[],'2B':[],'3B':[],SS:[],OF:[]};
+                      roster.forEach((p:any)=>{if(byPos[p.position])byPos[p.position].push(p);});
+                      const cells=[byPos.SP[0],byPos.SP[1],byPos.C[0],byPos['1B'][0],byPos['2B'][0],byPos['3B'][0],byPos.SS[0],byPos.OF[0],byPos.OF[1],byPos.OF[2]];
+                      const proj=roster.reduce((s:number,p:any)=>s+(p.proj_fpts||0),0);
+                      return (
+                        <tr key={i} style={{borderBottom:'1px solid rgba(255,255,255,0.04)'}}
+                          onMouseEnter={e=>(e.currentTarget.style.background='rgba(255,255,255,0.025)')}
+                          onMouseLeave={e=>(e.currentTarget.style.background='')}>
+                          <td style={{padding:'6px 8px',color:'#334155',cursor:'pointer',fontSize:13}}>🗑</td>
+                          {cells.map((p,j)=>(
+                            <td key={j} style={{padding:'6px 10px',whiteSpace:'nowrap' as const,fontSize:12}}>
+                              {p?<>{p.player_name} <span style={{color:'#475569'}}>({p.team})</span></>:'—'}
+                            </td>
+                          ))}
+                          <td style={{padding:'6px 10px',textAlign:'right' as const,fontWeight:700,color:'#2dd4bf'}}>{proj.toFixed(1)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {view==='playerExp' && (
+              <table style={{width:'100%',borderCollapse:'collapse' as const,fontSize:13}}>
+                <thead>
+                  <tr style={{borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
+                    {['PLAYER','POSITION','EXPOSURE %','PROJECTION'].map(h=>(
+                      <th key={h} style={{padding:'8px 12px',textAlign:'left' as const,color:'#64748b',fontSize:11,fontWeight:600}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
                 <tbody>
-                  {simResults.map((r,i) => {
-                    const rating = r.winPct*3+r.top10Pct*1.5+r.top25Pct;
-                    const maxR = Math.max(...simResults.map(x=>x.winPct*3+x.top10Pct*1.5+x.top25Pct));
-                    const isTop = rating>=maxR*0.9;
-                    return (
-                      <tr key={i} style={{ background:isTop?'rgba(34,197,94,0.05)':'', cursor:'pointer' }}
-                          onClick={() => setIdx(i)}>
-                        <td style={{ fontWeight:600, color:isTop?'#22c55e':'#94a3b8' }}>{isTop?'★':''} L{i+1}</td>
-                        <td style={{ fontFamily:"'Barlow Condensed',sans-serif",fontWeight:600,color:'#60a5fa' }}>{r.avgScore}</td>
-                        <td style={{ color:'#64748b' }}>{r.minScore}</td>
-                        <td style={{ color:'#94a3b8' }}>{r.maxScore}</td>
-                        <td style={{ color:'#22c55e',fontWeight:600 }}>{r.winPct}%</td>
-                        <td style={{ color:'#60a5fa' }}>{r.top10Pct}%</td>
-                        <td style={{ color:'#f59e0b' }}>{r.top25Pct}%</td>
-                        <td>
-                          <div style={{ width:50,height:5,background:'rgba(255,255,255,0.06)',borderRadius:3,overflow:'hidden' }}>
-                            <div style={{ width:`${(rating/maxR)*100}%`,height:'100%',background:isTop?'#22c55e':'#c41e3a',borderRadius:3 }} />
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {playerExp.map((p:any)=>(
+                    <tr key={p.id} style={{borderBottom:'1px solid rgba(255,255,255,0.04)'}}>
+                      <td style={{padding:'8px 12px',fontWeight:500}}>{p.player_name}</td>
+                      <td style={{padding:'8px 12px',color:'#94a3b8'}}>{p.position}</td>
+                      <td style={{padding:'8px 12px',color:p.expPct>defaultMaxExp+5?'#ef4444':'#2dd4bf',fontWeight:700}}>{p.expPct}%</td>
+                      <td style={{padding:'8px 12px',color:'#60a5fa'}}>{(p.proj_fpts||0).toFixed(1)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
-            </div>
-            <div style={{ fontSize:11, color:'#334155', marginTop:8 }}>Click row to view lineup. ★ = best performing lineup.</div>
+            )}
+            {view==='teamExp' && (
+              <table style={{width:'100%',borderCollapse:'collapse' as const,fontSize:13}}>
+                <thead>
+                  <tr style={{borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
+                    {['TEAM','LINEUP EXPOSURE %'].map(h=>(
+                      <th key={h} style={{padding:'8px 12px',textAlign:'left' as const,color:'#64748b',fontSize:11,fontWeight:600}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {teamExp.map((t:any)=>(
+                    <tr key={t.team} style={{borderBottom:'1px solid rgba(255,255,255,0.04)'}}>
+                      <td style={{padding:'8px 12px',fontWeight:600}}>{t.team}</td>
+                      <td style={{padding:'8px 12px',color:'#2dd4bf',fontWeight:700}}>{t.expPct}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Bottom bar */}
+      <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#0e0e14',borderTop:'1px solid rgba(255,255,255,0.08)',padding:'12px 24px',display:'flex',alignItems:'center',gap:16,zIndex:50}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:13,color:'#94a3b8',whiteSpace:'nowrap' as const}}>Number of Lineups</span>
+          <input type="number" value={numLineups} min={1} max={150}
+            onChange={e=>setNum(Math.min(150,Math.max(1,+e.target.value)))}
+            style={{...inp,width:80,textAlign:'center' as const}}/>
+        </div>
+        {warn && <div style={{fontSize:12,color:'#f59e0b',flex:1}}>{warn}</div>}
+        <div style={{display:'flex',gap:12,marginLeft:'auto'}}>
+          <button onClick={generate} disabled={generating||players.length===0} style={{
+            padding:'12px 44px',borderRadius:8,border:'none',
+            cursor:generating||players.length===0?'not-allowed':'pointer',
+            background:generating||players.length===0?'#334155':'linear-gradient(135deg,#2dd4bf,#0891b2)',
+            color:'white',fontSize:15,fontWeight:700,opacity:generating||players.length===0?0.6:1}}>
+            {generating?'Generating...':'Generate Lineups'}
+          </button>
+          <button onClick={()=>lineups.length>0&&setShowResults(true)} style={{
+            padding:'12px 44px',borderRadius:8,
+            border:`1px solid ${lineups.length>0?'rgba(45,212,191,0.4)':'rgba(255,255,255,0.1)'}`,
+            background:lineups.length>0?'rgba(45,212,191,0.08)':'transparent',
+            color:lineups.length>0?'#2dd4bf':'#475569',fontSize:15,fontWeight:700,cursor:lineups.length>0?'pointer':'default'}}>
+            View Lineups{lineups.length>0?` (${lineups.length})`:''}
+          </button>
+        </div>
       </div>
     </div>
   );
