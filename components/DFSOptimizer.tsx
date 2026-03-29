@@ -203,7 +203,7 @@ export default function DFSOptimizer() {
           </div>
           {SLOTS.map((slot,i)=>(
             <div key={i} style={{display:'grid',gridTemplateColumns:'50px 1fr 130px',gap:10,alignItems:'center',marginBottom:8}}>
-              <span style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{slot}</span>
+              <span style={{fontSize:13,fontWeight:800,color:'#c41e3a',letterSpacing:1}}>{slot}</span>
               <select style={{...inp,width:'100%'}} defaultValue="">
                 <option value="">Optimize</option>
                 {players.filter((p:any)=>slot==='P'?p.position==='SP':p.position===slot)
