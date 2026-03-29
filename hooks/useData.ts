@@ -468,7 +468,7 @@ export function useDFSOptimizer(players: any[]) {
     excluded     = [] as number[],
     numLineups   = 1,
     stackTeam    = null as string | null,
-    stackCombo   = [] as number[],
+    stackCombos  = [[]] as number[][], // array of combos to rotate through
     mode         = 'cash' as 'cash' | 'gpp',
     minUnique    = 2,
     minSalary    = 49000,
@@ -516,6 +516,10 @@ export function useDFSOptimizer(players: any[]) {
       // Scale by lineup count so 20-lineup sets get more variety than 3-lineup sets
       const progressRatio = lineups.length / numLineups;
       const noisePts = progressRatio * 3.5 * (numLineups > 5 ? 1.2 : 0.8);
+
+      // Rotate through selected combos — each lineup gets the next combo in the list
+      const comboIdx = lineups.length % stackCombos.length;
+      const stackCombo = stackCombos[comboIdx] || [];
 
       const roster = buildOne(pool, {
         locked,
