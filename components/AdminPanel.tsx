@@ -54,11 +54,11 @@ function ProjectionsSection() {
   };
 
   const handleClear = async () => {
-    if (!confirm(`Clear all projections for today? This cannot be undone.`)) return;
+    if (!confirm(`Clear all projections? This cannot be undone.`)) return;
     setClearing(true);
     try {
-      const date = new Date().toISOString().split('T')[0];
-      const res = await fetch(`/api/admin/projections?date=${date}&clearAll=true`, {
+      // No date param = delete most recent slate (avoids timezone date mismatch)
+      const res = await fetch(`/api/admin/projections?clearAll=true`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
