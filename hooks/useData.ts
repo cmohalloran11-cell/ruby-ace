@@ -322,22 +322,26 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
   const batterFacesSP = (bt: string, st: string) => spOppMap[st] === bt;
 
   // Stack combo logic
-  // stackCombo e.g. [4,3,1]: 4 hitters from anchor team, 3 from one other, 1 from another
-  // We track which teams are assigned to which combo slot during fill
+  // stackCombo e.g. [4,3,1]: biggest group gets 4 hitters from one team, next gets 3, next gets 1
+  // stackTeam pins the anchor (largest group) to a specific team; null = let optimizer choose best
+  // All groups are filled dynamically — teams are assigned as players are added
+  // This means each lineup naturally gets a DIFFERENT team combination based on scoring
   const useCombo = stackCombo && stackCombo.length > 0 && stackCombo[0] > 1;
-  // assignedGroups[i] = team assigned to combo slot i (slot 0 = anchor = stackTeam)
-  const assignedGroups: (string|null)[] = stackCombo ? stackCombo.map(() => null) : [];
-  if (useCombo && stackTeam) assignedGroups[0] = stackTeam;
 
+  // assignedGroups[i] = team assigned to combo slot i
+  // slot 0 = largest group (anchor), slots 1+ filled by optimizer with best available teams
+  const assignedGroups: (string|null)[] = stackCombo ? stackCombo.map(() => null) : [];
+  if (useCombo && stackTeam) assignedGroups[0] = stackTeam; // pin anchor if specified
+
+  // How many hitters is this team allowed (based on which combo slot it's in)?
   const getComboAllowed = (team: string): number => {
-    if (!useCombo || !stackCombo) return maxPerTeam;
-    // Find which group this team belongs to
+    if (!useCombo || !stackCombo) return 10; // no limit
     const idx = assignedGroups.indexOf(team);
-    if (idx >= 0) return stackCombo[idx]; // already assigned, use its limit
-    // Not assigned yet — find first open slot
+    if (idx >= 0) return stackCombo[idx]; // team already assigned to a slot
+    // Team not assigned yet — assign to next open slot
     const openIdx = assignedGroups.findIndex(g => g === null);
-    if (openIdx >= 0) return stackCombo[openIdx]; // can take this slot
-    return 0; // no open slots — team not allowed
+    if (openIdx >= 0) return stackCombo[openIdx]; // will be assigned when player is added
+    return 0; // all slots filled, this team can't add more
   };
 
   const assignTeamToGroup = (team: string): void => {
@@ -470,7 +474,6 @@ export function useDFSOptimizer(players: any[]) {
     minSalary    = 49000,
     maxExposure  = 100,
     maxOwnership = 0,
-    maxPerTeam   = 10,
     ruleNoBatterVsPitcher = true,
     ruleNoSameGameSPs     = true,
     ruleMinSalary         = true,
@@ -527,7 +530,7 @@ export function useDFSOptimizer(players: any[]) {
         totalLineups: numLineups,
         exposureCounts,
         oppMap,
-        maxPerTeam,
+        maxPerTeam: 10,
         ruleNoBatterVsPitcher,
         ruleNoSameGameSPs,
         ruleMinSalary,
