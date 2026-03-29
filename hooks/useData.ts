@@ -427,11 +427,18 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
   };
 
   for (const slot of SLOTS) {
-    if (!fill(slot.positions, slot.count)) return null;
+    if (!fill(slot.positions, slot.count)) {
+      if (rngSeed <= 3) {
+        const have = roster.filter(p => slot.positions.includes(p.position)).length;
+        console.warn('[buildOne] FAILED slot', slot.key, 'have', have, 'need', slot.count, 'roster_len', roster.length, 'sal', salUsed);
+      }
+      return null;
+    }
   }
 
   if (roster.length !== 10) return null;
   const total = roster.reduce((s, p) => s + (p.salary || 0), 0);
+  if (rngSeed === 1) console.log('[buildOne] seed=1 total=$' + total + ' floor=' + minSal + ' cap=' + cap + ' ok=' + (total >= minSal && total <= cap));
   if (total < minSal || total > cap) return null;
   return roster;
 }
