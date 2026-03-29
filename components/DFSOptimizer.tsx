@@ -11,21 +11,41 @@ const COMBO_MAP: Record<string, number[]> = {
   '3-2-2': [3,2,2], '3-2-1-1': [3,2,1,1],
 };
 
-function downloadCSV(lineups: any[][]) {
+function downloadCSV(lineups: any[][], contestInfo?: {entryIds: string[], name: string, id: string, fee: string}) {
   if (!lineups.length) return;
   const header = 'Entry ID,Contest Name,Contest ID,Entry Fee,P,P,C,1B,2B,3B,SS,OF,OF,OF';
-  const rows = lineups.map(roster => {
+  const rows = lineups.map((roster, i) => {
     const byPos: Record<string, any[]> = { SP:[], C:[], '1B':[], '2B':[], '3B':[], SS:[], OF:[] };
     for (const p of roster) { if (byPos[p.position]) byPos[p.position].push(p); }
     const slots = [byPos.SP[0],byPos.SP[1],byPos.C[0],byPos['1B'][0],byPos['2B'][0],
                    byPos['3B'][0],byPos.SS[0],byPos.OF[0],byPos.OF[1],byPos.OF[2]];
-    return ',,,,,' + slots.map(p => p ? (p.dk_name_id?.trim() || p.player_name) : '').join(',');
+    const players = slots.map(p => p ? (p.dk_name_id?.trim() || p.player_name) : '').join(',');
+    // If contest info provided, fill entry metadata; otherwise leave blank
+    if (contestInfo?.entryIds?.[i]) {
+      return `${contestInfo.entryIds[i]},${contestInfo.name},${contestInfo.id},${contestInfo.fee},${players}`;
+    }
+    return `,,,,${players}`;
   });
   const csv = [header,...rows].join('\r\n');
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
   a.download = 'lineups.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// Parse a DKEntries.csv file to extract contest info + entry IDs
+function parseDKEntries(text: string): {entryIds: string[], name: string, id: string, fee: string} | null {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const entryIds: string[] = [];
+  let name = '', id = '', fee = '';
+  for (const line of lines) {
+    const cols = line.split(',');
+    if (cols[0]?.trim().match(/^\d+$/)) {
+      if (!name && cols[1]) { name = cols[1].trim(); id = cols[2]?.trim() || ''; fee = cols[3]?.trim() || ''; }
+      entryIds.push(cols[0].trim());
+    }
+  }
+  return entryIds.length > 0 ? { entryIds, name, id, fee } : null;
 }
 
 const TAB = (active: boolean) => ({
@@ -72,6 +92,8 @@ export default function DFSOptimizer() {
   const [numLineups, setNum] = useState(20);
   const [generating, setGen] = useState(false);
   const [lineups, setLineups] = useState<any[][]>([]);
+  const [contestInfo, setContestInfo] = useState<{entryIds:string[],name:string,id:string,fee:string}|null>(null);
+  const [dkFileName, setDkFileName] = useState('');
   const [view, setView] = useState<'lineups'|'playerExp'|'teamExp'>('lineups');
   const [showResults, setShowResults] = useState(false);
   const [warn, setWarn] = useState('');
@@ -389,12 +411,42 @@ export default function DFSOptimizer() {
               <div style={{fontSize:16,fontWeight:700}}>Total number of lineups: {lineups.length}</div>
               <button onClick={()=>setShowResults(false)} style={{marginLeft:'auto',background:'none',border:'none',color:'#94a3b8',cursor:'pointer',fontSize:22}}>×</button>
             </div>
+            {/* DKEntries upload for auto-fill */}
+            <div style={{marginBottom:12,padding:'10px 14px',background:'rgba(45,212,191,0.04)',border:'1px solid rgba(45,212,191,0.15)',borderRadius:8}}>
+              <div style={{fontSize:12,color:'#2dd4bf',fontWeight:600,marginBottom:6}}>
+                Step 1: Upload your DKEntries.csv <span style={{color:'#475569',fontWeight:400}}>(from DK → Lineups → Edit Entries → Download)</span>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <label style={{display:'flex',alignItems:'center',gap:8,padding:'7px 14px',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:6,cursor:'pointer',fontSize:13}}>
+                  <span>📂</span>
+                  <span style={{color:contestInfo?'#22c55e':'#94a3b8'}}>{dkFileName || 'Choose DKEntries.csv...'}</span>
+                  <input type="file" accept=".csv" style={{display:'none'}} onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setDkFileName(file.name);
+                    const reader = new FileReader();
+                    reader.onload = ev => {
+                      const parsed = parseDKEntries(ev.target?.result as string);
+                      setContestInfo(parsed);
+                    };
+                    reader.readAsText(file);
+                  }}/>
+                </label>
+                {contestInfo && (
+                  <div style={{fontSize:11,color:'#22c55e'}}>
+                    ✓ {contestInfo.entryIds.length} entries · {contestInfo.name.slice(0,30)}
+                  </div>
+                )}
+              </div>
+            </div>
             <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
               <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:8,padding:'6px 12px',flex:1}}>
-                <span style={{fontSize:13,color:'#94a3b8'}}>lineups.csv</span>
-                <button onClick={()=>downloadCSV(lineups)} style={{marginLeft:'auto',background:'rgba(45,212,191,0.15)',border:'1px solid rgba(45,212,191,0.3)',borderRadius:6,color:'#2dd4bf',cursor:'pointer',padding:'4px 14px',fontSize:13,fontWeight:600}}>↓</button>
+                <span style={{fontSize:13,color:'#94a3b8'}}>{contestInfo ? '✓ Ready to upload directly to DK' : 'lineups.csv (paste entry IDs manually)'}</span>
+                <button onClick={()=>downloadCSV(lineups, contestInfo || undefined)} style={{marginLeft:'auto',background:'rgba(45,212,191,0.15)',border:'1px solid rgba(45,212,191,0.3)',borderRadius:6,color:'#2dd4bf',cursor:'pointer',padding:'4px 14px',fontSize:13,fontWeight:600}}>
+                  Step 2: ↓ Download
+                </button>
               </div>
-              <button onClick={()=>{setLineups([]);setShowResults(false);}} style={{padding:'8px 20px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,color:'#ef4444',cursor:'pointer',fontSize:13}}>Clear Lineups</button>
+              <button onClick={()=>{setLineups([]);setShowResults(false);setContestInfo(null);setDkFileName('');}} style={{padding:'8px 20px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,color:'#ef4444',cursor:'pointer',fontSize:13}}>Clear</button>
             </div>
             <div style={{display:'flex',gap:4,marginBottom:16,borderBottom:'1px solid rgba(255,255,255,0.08)',paddingBottom:10}}>
               {(['lineups','playerExp','teamExp'] as const).map(v=>(
