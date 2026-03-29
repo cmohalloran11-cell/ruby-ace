@@ -507,8 +507,12 @@ export function useDFSOptimizer(players: any[]) {
     );
 
     if (pool.length < 10) {
-      return []; // not enough players
+      console.warn('[Optimizer] Pool too small:', pool.length, 'players');
+      return [];
     }
+    console.log('[Optimizer] Pool:', pool.length, 'players',
+      '| SPs:', pool.filter((p:any)=>p.position==='SP').length,
+      '| spOppMap will be built from opp fields');
 
     // Build SP→opp map from the pool
     const oppMap: Record<string, string> = {};
@@ -591,6 +595,12 @@ export function useDFSOptimizer(players: any[]) {
       lineups.push({ players: roster, totalSalary, projFpts, avgOwnership: avgOwn });
     }
 
+    if (lineups.length === 0) {
+      console.warn('[Optimizer] Zero lineups built. Pool size:', pool.length,
+        'oppMap:', JSON.stringify(oppMap));
+    } else {
+      console.log('[Optimizer] Built', lineups.length, 'lineups. First:', lineups[0].projFpts, 'FP');
+    }
     return lineups;
   }, [players]);
 
