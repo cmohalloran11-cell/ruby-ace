@@ -223,7 +223,7 @@ const SLOTS = [
 // Used for budget-aware selection — ensures enough salary left for later slots
 const SLOT_FILL_ORDER = ['SP','SP','C','1B','2B','3B','SS','OF','OF','OF'];
 const SLOT_MIN_SAL: Record<string,number> = {
-  SP: 3500, C: 3000, '1B': 3000, '2B': 3000, '3B': 3000, SS: 3000, OF: 2500
+  SP: 3000, C: 2500, '1B': 2500, '2B': 2500, '3B': 2500, SS: 2500, OF: 2000
 };
 function minSalaryNeeded(rosterLen: number): number {
   // Minimum salary for all slots AFTER the one being filled (index rosterLen)
@@ -243,44 +243,31 @@ function mkRng(seed: number) {
 // ── Composite player score ────────────────────────────────────
 function compositeScore(p: any, mode: 'cash' | 'gpp', stackTeam: string | null): number {
   const proj    = p.proj_fpts    || 0;
-  const floor   = p.proj_floor   || proj * 0.3;
   const ceiling = p.proj_ceiling || proj * 1.8;
   const own     = p.proj_ownership || 0;
   const sal     = p.salary || 3000;
-  const lp      = p.lineup_pos  || 5; // batting order position, default middle
+  const lp      = p.lineup_pos  || 5;
   const isSP    = p.position === 'SP';
 
-  // Value = pts per $1k salary
-  const value = (proj / sal) * 1000;
-
-  // Lineup position factor — leadoff (1) and cleanup (3,4) get slight boost
+  const value    = (proj / sal) * 1000;
   const lpFactor = lp === 1 ? 1.05 : lp <= 4 ? 1.03 : lp >= 8 ? 0.97 : 1.0;
 
   let score: number;
 
   if (mode === 'cash') {
-    // Cash: maximize FLOOR, weight floor heavily, blend with value
-    // We want players who reliably produce, not lottery tickets
-    score = (floor * 0.55 + proj * 0.35 + value * 0.1) * lpFactor;
-    // Penalize very cheap players — drags salary utilization down
-    if (sal < 4000) score *= 0.88;
-    if (sal < 3500) score *= 0.80;
+    // Cash: projected FP is king, small value bonus for salary efficiency
+    score = (proj * 0.75 + value * 0.25) * lpFactor;
   } else {
-    // GPP: maximize CEILING leverage = ceiling relative to ownership
-    // Low-owned ceiling plays are the goal
+    // GPP: ceiling leverage (ceiling / sqrt(ownership)) rewards upside + low-owned
     const ceilingLeverage = own > 0 ? ceiling / Math.sqrt(own) : ceiling * 1.5;
     score = (ceilingLeverage * 0.5 + proj * 0.35 + value * 0.15) * lpFactor;
-    // Penalize high ownership — chalk is bad in GPPs
     if (own > 40) score *= 0.70;
     else if (own > 30) score *= 0.82;
     else if (own > 20) score *= 0.92;
-    else if (own < 8 && !isSP) score *= 1.08; // low-owned bonus
   }
 
-  // Stack team batter boost
-  if (stackTeam && p.team === stackTeam && !isSP) {
-    score *= 1.25;
-  }
+  // Stack team boost
+  if (stackTeam && p.team === stackTeam && !isSP) score *= 1.25;
 
   return score;
 }
