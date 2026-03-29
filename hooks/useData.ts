@@ -424,8 +424,8 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
       // Salary headroom
       const slotsRemaining = 10 - roster.length - 1;
       const salAfter = salUsed + (p.salary || 0);
-      if (salAfter > cap - slotsRemaining * DK_SLOT_MIN) continue;
-      if (salAfter + slotsRemaining * 7000 < minSal) continue;
+      if (salAfter > cap) continue; // hard cap only — floor enforced at end
+      if (slotsRemaining > 0 && salAfter + slotsRemaining * 9500 < minSal) continue; // cant reach floor
 
       roster.push(p);
       usedIds.add(p.id);
