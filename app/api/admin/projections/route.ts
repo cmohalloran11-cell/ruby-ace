@@ -285,11 +285,19 @@ export async function DELETE(request: NextRequest) {
     const sb = getServiceSupabase();
     const id = request.nextUrl.searchParams.get('id');
     const clearAll = request.nextUrl.searchParams.get('clearAll');
-    const date = request.nextUrl.searchParams.get('date') || new Date().toISOString().split('T')[0];
     if (clearAll === 'true') {
+      // Use most recent slate_date — avoids timezone mismatch with hardcoded today
+      const dateParam = request.nextUrl.searchParams.get('date');
+      let date = dateParam;
+      if (!date) {
+        const { data: latest } = await sb.from('projections')
+          .select('slate_date').order('slate_date', { ascending: false }).limit(1).single();
+        date = latest?.slate_date;
+      }
+      if (!date) return NextResponse.json({ deleted: 0 });
       const { data, error } = await sb.from('projections').delete().eq('slate_date', date).select('id');
       if (error) throw error;
-      return NextResponse.json({ deleted: data?.length || 0 });
+      return NextResponse.json({ deleted: data?.length || 0, date });
     }
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
     await sb.from('projections').delete().eq('id', id);
