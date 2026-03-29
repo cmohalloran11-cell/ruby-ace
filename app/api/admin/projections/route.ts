@@ -49,7 +49,7 @@ function mapTheBatX(R: Record<string, string>, source: string, slateDate: string
   const opp = R['OPP'] || R['OPP_TM'] || '';
   const proj = parseFloat(R['TOMORROW_DK'] || R['PROJ'] || R['FPTS'] || R['DK PTS'] || '0') || 0;
   if (proj <= 0) return null;
-  const own = parseFloat(R['12TEAM_OWN'] || R['15TEAM_OWN'] || R['OWN%'] || R['OWN'] || '0') || 0;
+  const own = parseFloat(R['POWN'] || R['12TEAM_OWN'] || R['15TEAM_OWN'] || R['OWN%'] || R['OWN'] || '0') || 0;
   const salary = parseInt(R['SALARY'] || R['DK SALARY'] || '0') || 0;
   const hasPitching = R['IP'] !== undefined && R['IP'] !== '' || R['ERA'] !== undefined && R['ERA'] !== '';
   const hasBatting = R['BA'] !== undefined && R['BA'] !== '' || R['HR'] !== undefined && R['HR'] !== '';
@@ -57,13 +57,23 @@ function mapTheBatX(R: Record<string, string>, source: string, slateDate: string
   const rawTeam = (R['TEAM'] || '').toUpperCase().trim();
   const teamMap: Record<string,string> = { KCR:'KC', TBR:'TB', SDP:'SD', SFG:'SF', WSN:'WSH', CHW:'CWS' };
   const team = teamMap[rawTeam] || rawTeam;
+  const floor   = parseFloat(R['FLOOR']   || '0') || 0;
+  const ceiling = parseFloat(R['CEILING'] || '0') || 0;
+  const lineupPos = parseInt(R['LP'] || '0') || 0;
+
+  const ipl = String(R['IPL'] || R['OL'] || '').toLowerCase() === 'true';
+
   return {
     player_name: name.trim(),
     dk_name_id: dkNameId || undefined,
     opp: opp || undefined,
+    in_probable_lineup: ipl,
     team, position,
-    proj_fpts: proj,
+    proj_fpts:    proj,
     proj_ownership: own,
+    proj_floor:   floor,
+    proj_ceiling: ceiling,
+    lineup_pos:   lineupPos,
     salary,
     proj_hr:  parseFloat(R['HR']  || '0') || 0,
     proj_rbi: parseFloat(R['RBI'] || '0') || 0,
