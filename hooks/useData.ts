@@ -1,634 +1,683 @@
 'use client';
-// hooks/useData.ts — all data fetching hooks
+// components/DFSOptimizer.tsx
+import { useState, useMemo, useRef } from 'react';
+import { useProjections, useDFSOptimizer } from '@/hooks/useData';
+import { TeamLogo, PosBadge, LoadingSkeleton, EmptyState, fmt$ } from './ui/shared';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+const ALL_POS = ['All', 'SP', 'C', '1B', '2B', '3B', 'SS', 'OF'];
+type SortKey = 'proj_fpts' | 'proj_floor' | 'proj_ceiling' | 'proj_ownership' | 'salary' | 'player_name' | 'valueRating';
+const POS_ORDER: Record<string, number> = { SP: 0, C: 1, '1B': 2, '2B': 3, '3B': 4, SS: 5, OF: 6 };
 
-// Generic fetcher
-async function apiFetch(path: string, token?: string | null, options: RequestInit = {}) {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> || {}),
-  };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(path, { ...options, headers });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
-  return data;
+function valColor(v: number) {
+  if (v >= 7) return '#22c55e';
+  if (v >= 5) return '#f59e0b';
+  return '#94a3b8';
+}
+function ownColor(o: number) {
+  if (o >= 35) return '#ef4444';
+  if (o >= 20) return '#f97316';
+  if (o >= 10) return '#f59e0b';
+  return '#22c55e';
 }
 
-// ── Schedule + Weather ────────────────────────────────────────
-export function useSchedule(date?: string) {
-  const [games, setGames] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+// ── DK Download — exact DKEntries Edit Entries format ─────────
+// Must match DKEntries.csv exactly:
+// Cols 0-3:  Entry ID, Contest Name, Contest ID, Entry Fee (leave blank — user pastes from DKEntries download)
+// Cols 4-13: P, P, C, 1B, 2B, 3B, SS, OF, OF, OF  using "Name (ID)" format
+// Col 14:    blank (DK has instructions here)
+// NO wrapping in quotes unless field contains comma — DK is strict about format
+function downloadLineups(lineups: any[]) {
+  if (!lineups.length) return;
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      const path = `/api/schedule${date ? `?date=${date}` : ''}`;
-      const data = await apiFetch(path);
-      setGames(Array.isArray(data) ? data : []);
-      setError(null);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
+  // Exact header matching DKEntries.csv
+  const header = 'Entry ID,Contest Name,Contest ID,Entry Fee,P,P,C,1B,2B,3B,SS,OF,OF,OF';
+
+  const dataRows = lineups.map(lu => {
+    // Group by position
+    const byPos: Record<string, any[]> = { SP:[], C:[], '1B':[], '2B':[], '3B':[], SS:[], OF:[] };
+    for (const p of lu.players) {
+      if (byPos[p.position]) byPos[p.position].push(p);
     }
-  }, [date]);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const interval = setInterval(load, 60000);
-    return () => clearInterval(interval);
-  }, [load]);
+    // Build ordered slots: P, P, C, 1B, 2B, 3B, SS, OF, OF, OF
+    const slots: (any|null)[] = [
+      byPos['SP'][0]  ?? null,
+      byPos['SP'][1]  ?? null,
+      byPos['C'][0]   ?? null,
+      byPos['1B'][0]  ?? null,
+      byPos['2B'][0]  ?? null,
+      byPos['3B'][0]  ?? null,
+      byPos['SS'][0]  ?? null,
+      byPos['OF'][0]  ?? null,
+      byPos['OF'][1]  ?? null,
+      byPos['OF'][2]  ?? null,
+    ];
 
-  return { games, loading, error, refresh: load };
-}
-
-// ── Projections ───────────────────────────────────────────────
-export function useProjections(date?: string, pos?: string) {
-  const [players, setPlayers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let params = date ? `?date=${date}` : '?';
-    if (pos) params += `&pos=${pos}`;
-    apiFetch(`/api/projections${params}`)
-      .then(d => { setPlayers(Array.isArray(d) ? d : []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [date, pos]);
-
-  return { players, loading };
-}
-
-// ── Props / Pick Lines ────────────────────────────────────────
-export function useProps() {
-  const [picks, setPicks] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    apiFetch('/api/props')
-      .then(d => { setPicks(Array.isArray(d) ? d : []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-
-  return { picks, loading };
-}
-
-// ── News Feed ─────────────────────────────────────────────────
-export function useNews(team: string = 'ALL', limit: number = 25) {
-  const [news, setNews] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    apiFetch(`/api/news?team=${team}&limit=${limit}`)
-      .then(d => { setNews(Array.isArray(d) ? d : []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [team, limit]);
-
-  return { news, loading };
-}
-
-// ── ESPN League ───────────────────────────────────────────────
-export function useESPN() {
-  const { token } = useAuth();
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const d = await apiFetch('/api/espn', token);
-      setData(d);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
-
-  const saveCredentials = async (leagueId: string, s2?: string, swid?: string) => {
-    await apiFetch('/api/espn', token, {
-      method: 'POST',
-      body: JSON.stringify({ leagueId, s2, swid }),
+    const playerCells = slots.map(p => {
+      if (!p) return '';
+      // DK Edit Entries requires "Firstname Lastname (DK_ID)" exactly
+      if (p.dk_name_id && p.dk_name_id.trim()) return p.dk_name_id.trim();
+      return p.player_name || '';
     });
-    await load();
-  };
 
-  return { data, loading, error, load, saveCredentials };
+    // 4 blank entry cols + 10 player cols — no trailing columns
+    return ['', '', '', '', ...playerCells].join(',');
+  });
+
+  const csvContent = [header, ...dataRows].join('\r\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ruby-ace-lineups-${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
-// ── Admin: Projections ────────────────────────────────────────
-export function useAdminProjections(date?: string) {
-  const { token } = useAuth();
-  const [players, setPlayers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+export default function DFSOptimizer() {
+  const { players, loading } = useProjections();
+  const { optimize, simulateContest, SALARY_CAP, SALARY_MIN } = useDFSOptimizer(players);
 
-  const d = date || new Date().toISOString().split('T')[0];
+  // ── Pool filters ──
+  const [pos, setPos]           = useState('All');
+  const [search, setSearch]     = useState('');
+  const [sortKey, setSortKey]   = useState<SortKey>('proj_fpts');
+  const [sortAsc, setSortAsc]   = useState(false);
+  const [locked, setLocked]     = useState<Set<number>>(new Set());
+  const [excluded, setExcluded] = useState<Set<number>>(new Set());
 
-  useEffect(() => {
-    if (!token) return;
-    // No date param = API returns most recent slate
-    apiFetch(`/api/admin/projections`, token)
-      .then(data => { setPlayers(Array.isArray(data) ? data : []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [token]);
+  // ── Optimizer settings ──
+  const [numLineups, setNum]      = useState(20);
+  const [mode, setMode]           = useState<'cash'|'gpp'>('cash');
+  const [stackTeam, setStack]     = useState('');
+  const [stackCombo, setCombo]    = useState<number[]>([]);
+  const [minUnique, setUniq]      = useState(2);
+  const [minSalary, setMinSal]    = useState(49000);
+  const [maxExposure, setMaxExp]  = useState(100);
+  const [maxOwnership, setMaxOwn] = useState(0);
+  const [maxPerTeam, setMaxTeam]  = useState(10);
+  // Toggleable rules
+  const [ruleNoBvP, setNoBvP]     = useState(true);
+  const [ruleNoSameGameSPs, setNoSameSPs] = useState(true);
+  const [ruleMinSal, setRuleMinSal]       = useState(true);
 
-  const update = async (id: number, fields: Record<string, any>) => {
-    setSaving(true);
-    await apiFetch('/api/admin/projections', token, {
-      method: 'PATCH',
-      body: JSON.stringify({ id, ...fields }),
+  // ── Output ──
+  const [lineups, setLineups]     = useState<any[]>([]);
+  const [activeIdx, setIdx]       = useState(0);
+  const [generating, setGen]      = useState(false);
+  const [warn, setWarn]           = useState('');
+
+  // ── Sim ──
+  const [simResults, setSimResults] = useState<any[]>([]);
+  const [simming, setSimming]       = useState(false);
+  const [fieldSize, setFieldSize]   = useState(1000);
+  const [showSim, setShowSim]       = useState(false);
+
+  const teams = useMemo(() =>
+    Array.from(new Set(players.map((p: any) => p.team).filter(Boolean))).sort() as string[],
+  [players]);
+
+  const filtered = useMemo(() => {
+    let list = [...players];
+    if (pos !== 'All') list = list.filter((p: any) => p.position === pos);
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter((p: any) =>
+        p.player_name?.toLowerCase().includes(q) || p.team?.toLowerCase().includes(q)
+      );
+    }
+    list.sort((a: any, b: any) => {
+      const va = a[sortKey] ?? 0, vb = b[sortKey] ?? 0;
+      if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return sortAsc ? va - vb : vb - va;
     });
-    setPlayers(prev => prev.map(p => p.id === id ? { ...p, ...fields } : p));
-    setSaving(false);
-  };
-
-  const remove = async (id: number) => {
-    await apiFetch(`/api/admin/projections?id=${id}`, token, { method: 'DELETE' });
-    setPlayers(prev => prev.filter(p => p.id !== id));
-  };
-
-  const uploadCSV = async (file: File, source: string) => {
-    setSaving(true);
-    const form = new FormData();
-    form.append('file', file);
-    form.append('source', source);
-    form.append('date', d);
-    const res = await fetch('/api/admin/projections', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    });
-    const result = await res.json();
-    setSaving(false);
-    apiFetch(`/api/admin/projections`, token)
-      .then(data => setPlayers(Array.isArray(data) ? data : []));
-    return result;
-  };
-
-  return { players, loading, saving, update, remove, uploadCSV };
-}
-
-// ── Admin: Users ──────────────────────────────────────────────
-export function useAdminUsers() {
-  const { token } = useAuth();
-  const [users, setUsers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!token) return;
-    apiFetch('/api/admin/users', token)
-      .then(d => { setUsers(Array.isArray(d) ? d : []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [token]);
-
-  const updateUser = async (id: string, fields: any) => {
-    await apiFetch('/api/admin/users', token, {
-      method: 'PATCH',
-      body: JSON.stringify({ id, ...fields }),
-    });
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, ...fields } : u));
-  };
-
-  return { users, loading, updateUser };
-}
-
-// ═══════════════════════════════════════════════════════════════
-// DFS OPTIMIZER
-// ═══════════════════════════════════════════════════════════════
-
-const DK_CAP  = 50000;
-const DK_MIN  = 49000;
-const DK_SLOT_MIN = 2000; // DK absolute minimum salary per player
-
-// DK MLB Classic: 2 SP, 1 C, 1 1B, 1 2B, 1 3B, 1 SS, 3 OF
-const SLOTS = [
-  { key: 'SP', positions: ['SP'],       count: 2 },
-  { key: 'C',  positions: ['C'],        count: 1 },
-  { key: '1B', positions: ['1B'],       count: 1 },
-  { key: '2B', positions: ['2B'],       count: 1 },
-  { key: '3B', positions: ['3B'],       count: 1 },
-  { key: 'SS', positions: ['SS'],       count: 1 },
-  { key: 'OF', positions: ['OF'],       count: 3 },
-];
-
-// Seeded deterministic RNG (LCG)
-function mkRng(seed: number) {
-  let s = (seed * 1664525 + 1013904223) >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 0xffffffff;
-  };
-}
-
-// ── Composite player score ────────────────────────────────────
-function compositeScore(p: any, mode: 'cash' | 'gpp', stackTeam: string | null): number {
-  const proj    = p.proj_fpts    || 0;
-  const floor   = p.proj_floor   || proj * 0.3;
-  const ceiling = p.proj_ceiling || proj * 1.8;
-  const own     = p.proj_ownership || 0;
-  const sal     = p.salary || 3000;
-  const lp      = p.lineup_pos  || 5; // batting order position, default middle
-  const isSP    = p.position === 'SP';
-
-  // Value = pts per $1k salary
-  const value = (proj / sal) * 1000;
-
-  // Lineup position factor — leadoff (1) and cleanup (3,4) get slight boost
-  const lpFactor = lp === 1 ? 1.05 : lp <= 4 ? 1.03 : lp >= 8 ? 0.97 : 1.0;
-
-  let score: number;
-
-  if (mode === 'cash') {
-    // Cash: maximize FLOOR, weight floor heavily, blend with value
-    // We want players who reliably produce, not lottery tickets
-    score = (floor * 0.55 + proj * 0.35 + value * 0.1) * lpFactor;
-    // Penalize very cheap players — drags salary utilization down
-    if (sal < 4000) score *= 0.88;
-    if (sal < 3500) score *= 0.80;
-  } else {
-    // GPP: maximize CEILING leverage = ceiling relative to ownership
-    // Low-owned ceiling plays are the goal
-    const ceilingLeverage = own > 0 ? ceiling / Math.sqrt(own) : ceiling * 1.5;
-    score = (ceilingLeverage * 0.5 + proj * 0.35 + value * 0.15) * lpFactor;
-    // Penalize high ownership — chalk is bad in GPPs
-    if (own > 40) score *= 0.70;
-    else if (own > 30) score *= 0.82;
-    else if (own > 20) score *= 0.92;
-    else if (own < 8 && !isSP) score *= 1.08; // low-owned bonus
-  }
-
-  // Stack team batter boost
-  if (stackTeam && p.team === stackTeam && !isSP) {
-    score *= 1.25;
-  }
-
-  return score;
-}
-
-// Stack combo: array of group sizes summing to 8 hitter slots
-// e.g. [4,3,1] = 4 from team A, 3 from team B, 1 from any remaining team
-// e.g. [5,2,1] = 5 from team A, 2 from team B, 1 from any
-type StackCombo = number[]; // sorted descending
-
-// ── Build one lineup ──────────────────────────────────────────
-interface BuildOptions {
-  locked:          number[];
-  excluded:        Set<number>;
-  cap:             number;
-  minSal:          number;
-  stackTeam:       string | null;   // anchor team for largest group
-  stackCombo:      StackCombo;      // e.g. [4,3,1] — 0 = no stack constraint
-  mode:            'cash' | 'gpp';
-  noisePts:        number;
-  maxExposure:     number;
-  totalLineups:    number;
-  exposureCounts:  Record<number, number>;
-  oppMap:          Record<string, string>;
-  maxPerTeam:      number;          // 10 = no limit
-  ruleNoBatterVsPitcher: boolean;
-  ruleNoSameGameSPs:     boolean;
-  ruleMinSalary:         boolean;
-  rngSeed:         number;
-}
-
-function buildOne(pool: any[], opts: BuildOptions): any[] | null {
-  const {
-    locked, excluded, cap, minSal, stackTeam, stackCombo,
-    mode, noisePts, maxExposure, totalLineups, exposureCounts,
-    oppMap, maxPerTeam, ruleNoBatterVsPitcher, ruleNoSameGameSPs,
-    ruleMinSalary, rngSeed,
-  } = opts;
-
-  const rng = mkRng(rngSeed);
-  const maxAllowed = maxExposure < 100
-    ? Math.max(1, Math.floor((maxExposure / 100) * totalLineups))
-    : Infinity;
-
-  // Build opp map: SP team -> opponent team
-  const spOppMap = { ...oppMap };
-  for (const p of pool) {
-    if (p.position === 'SP' && p.opp && !spOppMap[p.team]) {
-      spOppMap[p.team] = p.opp;
-    }
-  }
-  const batterFacesSP = (bt: string, st: string) => spOppMap[st] === bt;
-
-  // Stack combo logic
-  // stackCombo e.g. [4,3,1]: biggest group gets 4 hitters from one team, next gets 3, next gets 1
-  // stackTeam pins the anchor (largest group) to a specific team; null = let optimizer choose best
-  // All groups are filled dynamically — teams are assigned as players are added
-  // This means each lineup naturally gets a DIFFERENT team combination based on scoring
-  const useCombo = stackCombo && stackCombo.length > 0 && stackCombo[0] > 1;
-
-  // assignedGroups[i] = team assigned to combo slot i
-  // slot 0 = largest group (anchor), slots 1+ filled by optimizer with best available teams
-  const assignedGroups: (string|null)[] = stackCombo ? stackCombo.map(() => null) : [];
-  if (useCombo && stackTeam) assignedGroups[0] = stackTeam; // pin anchor if specified
-
-  // How many hitters is this team allowed (based on which combo slot it's in)?
-  const getComboAllowed = (team: string): number => {
-    if (!useCombo || !stackCombo) return 10; // no limit
-    const idx = assignedGroups.indexOf(team);
-    if (idx >= 0) return stackCombo[idx]; // team already assigned to a slot
-    // Team not assigned yet — assign to next open slot
-    const openIdx = assignedGroups.findIndex(g => g === null);
-    if (openIdx >= 0) return stackCombo[openIdx]; // will be assigned when player is added
-    return 0; // all slots filled, this team can't add more
-  };
-
-  const assignTeamToGroup = (team: string): void => {
-    if (!useCombo || assignedGroups.includes(team)) return;
-    const openIdx = assignedGroups.findIndex(g => g === null);
-    if (openIdx >= 0) assignedGroups[openIdx] = team;
-  };
-
-  // Score all players with flat-point noise
-  const scored = pool
-    .filter(p => !excluded.has(p.id))
-    .map(p => {
-      const base = compositeScore(p, mode, stackTeam);
-      const noise = noisePts > 0 ? (rng() - 0.5) * noisePts * 2 : 0;
-      return { ...p, _base: base, _score: base + noise };
-    })
-    .sort((a, b) => b._score - a._score);
-
-  const roster: any[] = [];
-  const usedIds = new Set<number>();
-  let salUsed = 0;
-
-  // Lock in forced players first
-  for (const p of scored) {
-    if (locked.includes(p.id) && !usedIds.has(p.id)) {
-      roster.push(p);
-      usedIds.add(p.id);
-      salUsed += p.salary || 0;
-      if (p.position !== 'SP') assignTeamToGroup(p.team);
-    }
-  }
-
-  const fill = (positions: string[], count: number): boolean => {
-    const have = roster.filter(p => positions.includes(p.position)).length;
-    let need = count - have;
-
-    for (const p of scored) {
-      if (need <= 0) break;
-      if (!positions.includes(p.position)) continue;
-      if (usedIds.has(p.id)) continue;
-
-      // Rule: no batter vs own pitcher
-      if (ruleNoBatterVsPitcher) {
-        if (p.position !== 'SP') {
-          if (roster.filter(r => r.position === 'SP').some(sp => batterFacesSP(p.team, sp.team))) continue;
-        }
-        if (p.position === 'SP') {
-          if (roster.filter(r => r.position !== 'SP').some(b => batterFacesSP(b.team, p.team))) continue;
-        }
-      }
-
-      // Rule: no two SPs from same game
-      if (ruleNoSameGameSPs && p.position === 'SP') {
-        const spTeams = roster.filter(r => r.position === 'SP').map(r => r.team);
-        if (spTeams.some(st => spOppMap[st] === p.team || spOppMap[p.team] === st)) continue;
-      }
-
-      // Exposure limit
-      if (maxExposure < 100 && !locked.includes(p.id)) {
-        if ((exposureCounts[p.id] || 0) >= maxAllowed) continue;
-      }
-
-      // Max per team
-      if (maxPerTeam < 10) {
-        const teamCount = roster.filter(r => r.team === p.team).length;
-        if (teamCount >= maxPerTeam) continue;
-      }
-
-      // Stack combo constraint (batters only)
-      if (p.position !== 'SP' && useCombo) {
-        const currentCount = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
-        const allowed = getComboAllowed(p.team);
-        if (allowed === 0) continue; // no slot available for this team
-        if (currentCount >= allowed) continue; // at this team's group limit
-      }
-
-      // Min salary filter
-      if (ruleMinSalary && (p.salary || 0) <= 3500 && (p.proj_fpts || 0) < 7) continue;
-
-      // Salary headroom
-      const slotsRemaining = 10 - roster.length - 1;
-      const salAfter = salUsed + (p.salary || 0);
-      if (salAfter > cap - slotsRemaining * DK_SLOT_MIN) continue;
-      if (salAfter + slotsRemaining * 7000 < minSal) continue;
-
-      roster.push(p);
-      usedIds.add(p.id);
-      salUsed += p.salary || 0;
-      if (p.position !== 'SP') assignTeamToGroup(p.team);
-      need--;
-    }
-
-    return need === 0;
-  };
-
-  let ok = true;
-  for (const slot of SLOTS) {
-    if (!fill(slot.positions, slot.count)) { ok = false; break; }
-  }
-
-  if (!ok || roster.length !== 10) return null;
-
-  const totalSalary = roster.reduce((s, p) => s + (p.salary || 0), 0);
-  if (totalSalary < minSal || totalSalary > cap) return null;
-
-  // Final batter-vs-pitcher sanity
-  if (ruleNoBatterVsPitcher) {
-    for (const sp of roster.filter(p => p.position === 'SP')) {
-      for (const b of roster.filter(p => p.position !== 'SP')) {
-        if (batterFacesSP(b.team, sp.team)) return null;
-      }
-    }
-  }
-
-  return roster;
-}
-
-
-// ── Main optimizer hook ───────────────────────────────────────
-export function useDFSOptimizer(players: any[]) {
-
-  const optimize = useCallback(({
-    locked       = [] as number[],
-    excluded     = [] as number[],
-    numLineups   = 1,
-    stackTeam    = null as string | null,
-    stackCombo   = [] as number[],
-    mode         = 'cash' as 'cash' | 'gpp',
-    minUnique    = 2,
-    minSalary    = 49000,
-    maxExposure  = 100,
-    maxOwnership = 0,
-    ruleNoBatterVsPitcher = true,
-    ruleNoSameGameSPs     = true,
-    ruleMinSalary         = true,
-  }) => {
-    // Pool: proj_fpts > 0, IPL (in probable lineup) filter, not excluded
-    const excludedSet = new Set(excluded);
-    const pool = players.filter(p =>
-      !excludedSet.has(p.id) &&
-      (p.proj_fpts || 0) > 0 &&
-      // Only include confirmed lineup players — IPL=true from theBatX
-      // Locked players always included regardless of IPL
-      (p.in_probable_lineup !== false || locked.includes(p.id)) &&
-      // Ownership filter (GPP use)
-      (maxOwnership === 0 || (p.proj_ownership || 0) <= maxOwnership || locked.includes(p.id))
-    );
-
-    if (pool.length < 10) {
-      return []; // not enough players
-    }
-
-    // Build SP→opp map from the pool
-    const oppMap: Record<string, string> = {};
-    for (const p of pool) {
-      if (p.position === 'SP' && p.opp) oppMap[p.team] = p.opp;
-    }
-
-    const exposureCounts: Record<number, number> = {};
-    const lineups: any[] = [];
-    const usedLineupHashes = new Set<string>();
-
-    let seed = 0;
-    let totalAttempts = 0;
-    const MAX_ATTEMPTS = numLineups * 200;
-
-    while (lineups.length < numLineups && totalAttempts < MAX_ATTEMPTS) {
-      seed++;
-      totalAttempts++;
-
-      // Noise: 0 for first few lineups (optimal), increasing for variety
-      // Scale by lineup count so 20-lineup sets get more variety than 3-lineup sets
-      const progressRatio = lineups.length / numLineups;
-      const noisePts = progressRatio * 3.5 * (numLineups > 5 ? 1.2 : 0.8);
-
-      const roster = buildOne(pool, {
-        locked,
-        excluded: excludedSet,
-        cap: DK_CAP,
-        minSal: minSalary,
-        stackTeam,
-        stackCombo,
-        mode,
-        noisePts,
-        maxExposure,
-        totalLineups: numLineups,
-        exposureCounts,
-        oppMap,
-        maxPerTeam: 10,
-        ruleNoBatterVsPitcher,
-        ruleNoSameGameSPs,
-        ruleMinSalary,
-        rngSeed: seed,
-      });
-
-      if (!roster) continue;
-
-      // Dedup check — hash by sorted player IDs
-      const hash = [...roster].map(p => p.id).sort().join(',');
-      if (usedLineupHashes.has(hash)) continue;
-
-      // Min unique vs previous lineup
-      if (minUnique > 0 && lineups.length > 0) {
-        const prevIds = new Set(lineups[lineups.length - 1].players.map((p: any) => p.id));
-        const uniqueCount = roster.filter(p => !prevIds.has(p.id)).length;
-        if (uniqueCount < minUnique) continue;
-      }
-
-      // Quality floor: at least 80% of best lineup's proj FP
-      if (lineups.length > 0) {
-        const thisFP = roster.reduce((s, p) => s + (p.proj_fpts || 0), 0);
-        const bestFP = lineups[0].projFpts;
-        if (thisFP < bestFP * 0.80) continue;
-      }
-
-      // Update exposure
-      for (const p of roster) {
-        exposureCounts[p.id] = (exposureCounts[p.id] || 0) + 1;
-      }
-
-      usedLineupHashes.add(hash);
-
-      const totalSalary = roster.reduce((s, p) => s + (p.salary || 0), 0);
-      const projFpts    = parseFloat(roster.reduce((s, p) => s + (p.proj_fpts || 0), 0).toFixed(1));
-      const avgOwn      = parseFloat((roster.reduce((s, p) => s + (p.proj_ownership || 0), 0) / roster.length).toFixed(1));
-
-      lineups.push({ players: roster, totalSalary, projFpts, avgOwnership: avgOwn });
-    }
-
-    return lineups;
+    return list;
+  }, [players, pos, search, sortKey, sortAsc]);
+
+  const posBreakdown = useMemo(() => {
+    const c: Record<string,number> = {};
+    players.forEach((p: any) => { c[p.position] = (c[p.position]||0)+1; });
+    return c;
   }, [players]);
 
-  // ── Contest simulator ───────────────────────────────────────
-  const simulateContest = useCallback((lineups: any[], fieldSize: number = 1000) => {
-    if (!lineups.length) return null;
-    const NUM_SIMS = 500;
-    const rng = mkRng(99);
+  const sortBy = (k: SortKey) => {
+    if (sortKey === k) setSortAsc(x => !x);
+    else { setSortKey(k); setSortAsc(false); }
+  };
 
-    const results = lineups.map(() => ({
-      wins: 0, top10: 0, top25: 0, totalScore: 0, minScore: 999, maxScore: 0,
-    }));
+  const toggleLock    = (id: number) => setLocked(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const toggleExclude = (id: number) => setExcluded(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const clearAll = () => { setLocked(new Set()); setExcluded(new Set()); };
 
-    for (let sim = 0; sim < NUM_SIMS; sim++) {
-      // Score each of your lineups with realistic variance
-      const yourScores = lineups.map(lu => {
-        return lu.players.reduce((sum: number, p: any) => {
-          const base = p.proj_fpts || 0;
-          const std = p.position === 'SP' ? base * 0.35 : base * 0.28;
-          // Box-Muller for normal distribution
-          const u1 = Math.max(1e-10, rng());
-          const u2 = rng();
-          const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-          return sum + Math.max(0, base + z * std);
-        }, 0);
+  const generate = () => {
+    setGen(true); setWarn(''); setSimResults([]); setShowSim(false);
+    setTimeout(() => {
+      const result = optimize({
+        locked:       Array.from(locked),
+        excluded:     Array.from(excluded),
+        numLineups,
+        stackTeam:    stackTeam || null,
+        stackCombo,
+        mode,
+        minUnique,
+        minSalary,
+        maxExposure,
+        maxOwnership,
+        ruleNoBatterVsPitcher: ruleNoBvP,
+        ruleNoSameGameSPs,
+        ruleMinSalary: ruleMinSal,
       });
-
-      // Generate field
-      const field: number[] = [];
-      for (let i = 0; i < fieldSize; i++) {
-        const u1 = Math.max(1e-10, rng()); const u2 = rng();
-        const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        field.push(90 + z * 18);
+      setLineups(result);
+      setIdx(0);
+      setGen(false);
+      if (result.length === 0) {
+        setWarn('Could not build any valid lineups. Check your player pool has all positions with salary > 0. Try relaxing exposure or ownership limits.');
+      } else if (result.length < numLineups) {
+        setWarn(`Built ${result.length} of ${numLineups} lineups. Relax max exposure, min unique, or add more players.`);
       }
-      field.sort((a, b) => b - a);
+    }, 50);
+  };
 
-      yourScores.forEach((score, i) => {
-        results[i].totalScore += score;
-        results[i].minScore = Math.min(results[i].minScore, score);
-        results[i].maxScore = Math.max(results[i].maxScore, score);
-        const rank = field.findIndex(f => score > f);
-        const pct = (rank === -1 ? fieldSize : rank) / fieldSize;
-        if (pct < 0.01) results[i].wins++;
-        if (pct < 0.10) results[i].top10++;
-        if (pct < 0.25) results[i].top25++;
-      });
-    }
+  const runSim = () => {
+    if (!lineups.length) return;
+    setSimming(true); setShowSim(true);
+    setTimeout(() => {
+      setSimResults(simulateContest(lineups, fieldSize) || []);
+      setSimming(false);
+    }, 50);
+  };
 
-    return results.map((r, i) => ({
-      lineupIdx: i,
-      avgScore:  parseFloat((r.totalScore / NUM_SIMS).toFixed(1)),
-      minScore:  parseFloat(r.minScore.toFixed(1)),
-      maxScore:  parseFloat(r.maxScore.toFixed(1)),
-      winPct:    parseFloat((r.wins   / NUM_SIMS * 100).toFixed(1)),
-      top10Pct:  parseFloat((r.top10  / NUM_SIMS * 100).toFixed(1)),
-      top25Pct:  parseFloat((r.top25  / NUM_SIMS * 100).toFixed(1)),
-    }));
-  }, []);
+  const cur = lineups[activeIdx];
+  const goTo = (i: number) => setIdx(Math.max(0, Math.min(lineups.length-1, i)));
 
-  return { optimize, simulateContest, SALARY_CAP: DK_CAP, SALARY_MIN: DK_MIN };
+  // Exposure summary across all lineups
+  const exposureMap = useMemo(() => {
+    const m: Record<number, number> = {};
+    lineups.forEach(lu => lu.players.forEach((p: any) => { m[p.id] = (m[p.id]||0)+1; }));
+    return m;
+  }, [lineups]);
+
+  const SortTh = ({ label, k }: { label: string; k: SortKey }) => (
+    <th onClick={() => sortBy(k)} style={{ cursor:'pointer', userSelect:'none', whiteSpace:'nowrap', fontSize: 11 }}>
+      {label}{sortKey===k ? (sortAsc?' ↑':' ↓') : ''}
+    </th>
+  );
+
+  const hasSalary    = players.some((p: any) => (p.salary||0) > 0);
+  const hasPositions = players.some((p: any) => p.position && p.position !== '');
+
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'1fr 400px', gap:16, alignItems:'start' }}>
+
+      {/* ── Player Pool ── */}
+      <div>
+        {/* Warning */}
+        {!loading && players.length > 0 && (!hasSalary || !hasPositions) && (
+          <div style={{ background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:6, padding:'10px 12px', fontSize:12, color:'#fbbf24', marginBottom:12, lineHeight:1.7 }}>
+            <strong>Missing data</strong> — Upload DraftKings salary CSV first (sets positions + salary), then upload theBatX files.
+          </div>
+        )}
+
+        <div className="card" style={{ padding:16 }}>
+          {/* Filters */}
+          <div style={{ display:'flex', gap:8, marginBottom:10, flexWrap:'wrap', alignItems:'center' }}>
+            <input className="input-field" style={{ maxWidth:190, padding:'5px 10px', fontSize:12 }}
+              placeholder="Search name or team..." value={search} onChange={e => setSearch(e.target.value)} />
+            <select className="input-field" style={{ width:80 }} value={pos} onChange={e => setPos(e.target.value)}>
+              {ALL_POS.map(p => <option key={p}>{p}</option>)}
+            </select>
+            <span style={{ fontSize:12, color:'#64748b', marginLeft:'auto' }}>{filtered.length}/{players.length}</span>
+            {(locked.size>0||excluded.size>0) && (
+              <>
+                {locked.size>0 && <span style={{ fontSize:12, color:'#f59e0b' }}>{locked.size} locked</span>}
+                {excluded.size>0 && <span style={{ fontSize:12, color:'#ef4444' }}>{excluded.size} excluded</span>}
+                <button onClick={clearAll} style={{ background:'none', border:'none', color:'#64748b', cursor:'pointer', fontSize:12, textDecoration:'underline' }}>Clear</button>
+              </>
+            )}
+          </div>
+
+          {loading ? <LoadingSkeleton rows={10} cols={7} /> : players.length===0 ? (
+            <EmptyState message="Upload projections in Admin to populate the optimizer." />
+          ) : (
+            <div style={{ maxHeight:500, overflowY:'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ width:28 }}>L</th>
+                    <SortTh label="Player" k="player_name" />
+                    <th>Pos</th>
+                    <SortTh label="Sal" k="salary" />
+                    <SortTh label="Proj" k="proj_fpts" />
+                    <SortTh label="Floor" k="proj_floor" />
+                    <SortTh label="Ceil" k="proj_ceiling" />
+                    <SortTh label="Own%" k="proj_ownership" />
+                    <SortTh label="Val" k="valueRating" />
+                    {lineups.length > 0 && <th style={{ fontSize:10 }}>Exp%</th>}
+                    <th style={{ width:28 }}>X</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((p: any) => {
+                    const isL = locked.has(p.id);
+                    const isX = excluded.has(p.id);
+                    const own = p.proj_ownership || 0;
+                    const exp = lineups.length > 0 ? Math.round(((exposureMap[p.id]||0)/lineups.length)*100) : null;
+                    return (
+                      <tr key={p.id} style={{ opacity:isX?0.2:1, background:isL?'rgba(245,158,11,0.04)':'' }}>
+                        <td>
+                          <button onClick={() => toggleLock(p.id)} style={{
+                            width:22,height:22,borderRadius:4,cursor:'pointer',
+                            border:`1px solid ${isL?'#f59e0b':'rgba(255,255,255,0.1)'}`,
+                            background:isL?'rgba(245,158,11,0.15)':'transparent',
+                            color:isL?'#f59e0b':'#475569',fontSize:10,fontWeight:700,
+                          }}>{isL?'L':'–'}</button>
+                        </td>
+                        <td>
+                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                            <TeamLogo abbr={p.team||'?'} size={18} />
+                            <div>
+                              <div style={{ fontSize:12, fontWeight:500 }}>{p.player_name}</div>
+                              <div style={{ fontSize:10, color:'#475569' }}>{p.team}{p.lineup_pos ? ` · LP${p.lineup_pos}` : ''}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td><PosBadge pos={p.position||'?'} /></td>
+                        <td style={{ fontFamily:"'Barlow Condensed',sans-serif", fontWeight:600, fontSize:12, color:p.salary>0?'#e2e8f0':'#334155' }}>
+                          {p.salary>0?fmt$(p.salary):'—'}
+                        </td>
+                        <td><span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700, color:'#60a5fa', fontSize:14 }}>{(p.proj_fpts||0).toFixed(1)}</span></td>
+                        <td style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:11, color:'#64748b' }}>
+                          {p.proj_floor>0?p.proj_floor.toFixed(1):'—'}
+                        </td>
+                        <td style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:11, color:'#94a3b8' }}>
+                          {p.proj_ceiling>0?p.proj_ceiling.toFixed(1):'—'}
+                        </td>
+                        <td><span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:12, color:ownColor(own) }}>{own>0?`${own.toFixed(1)}%`:'—'}</span></td>
+                        <td><span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:12, color:valColor(p.valueRating||0) }}>{p.valueRating>0?p.valueRating.toFixed(2):'—'}</span></td>
+                        {lineups.length > 0 && (
+                          <td style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:11,
+                            color: exp !== null && exp > maxExposure ? '#ef4444' : '#64748b' }}>
+                            {exp !== null && exp > 0 ? `${exp}%` : '—'}
+                          </td>
+                        )}
+                        <td>
+                          <button onClick={() => toggleExclude(p.id)} style={{
+                            width:22,height:22,borderRadius:4,cursor:'pointer',
+                            border:`1px solid ${isX?'rgba(34,197,94,0.3)':'rgba(239,68,68,0.2)'}`,
+                            background:isX?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.06)',
+                            color:isX?'#22c55e':'#ef4444',fontSize:10,fontWeight:700,
+                          }}>{isX?'+':'X'}</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Position coverage */}
+          {players.length>0 && (
+            <div style={{ display:'flex', gap:6, marginTop:10, flexWrap:'wrap' }}>
+              {['SP','C','1B','2B','3B','SS','OF'].map(p => (
+                <div key={p} style={{
+                  padding:'2px 8px', borderRadius:4, fontSize:11,
+                  fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
+                  background:(posBreakdown[p]||0)>0?'rgba(34,197,94,0.08)':'rgba(239,68,68,0.08)',
+                  color:(posBreakdown[p]||0)>0?'#22c55e':'#ef4444',
+                  border:`1px solid ${(posBreakdown[p]||0)>0?'rgba(34,197,94,0.2)':'rgba(239,68,68,0.2)'}`,
+                }}>
+                  {p} {posBreakdown[p]||0}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Settings + Output ── */}
+      <div>
+        <div className="card" style={{ padding:16, marginBottom:12 }}>
+          <div className="section-label">Optimizer Settings</div>
+
+          {/* Contest mode */}
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:12, color:'#94a3b8', marginBottom:6 }}>Contest type</div>
+            <div style={{ display:'flex', gap:6 }}>
+              {(['cash','gpp'] as const).map(m => (
+                <button key={m} onClick={() => setMode(m)} style={{
+                  flex:1, padding:'8px 0', borderRadius:6, cursor:'pointer',
+                  border:`1px solid ${mode===m?(m==='cash'?'rgba(34,197,94,0.5)':'rgba(196,30,58,0.5)'):'rgba(255,255,255,0.08)'}`,
+                  background:mode===m?(m==='cash'?'rgba(34,197,94,0.08)':'rgba(196,30,58,0.08)'):'transparent',
+                  color:mode===m?(m==='cash'?'#22c55e':'#f06070'):'#64748b',
+                  fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,fontSize:13,
+                }}>
+                  {m==='cash'?'Cash / 50-50':'GPP / Tournament'}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize:11, color:'#475569', marginTop:5, lineHeight:1.5 }}>
+              {mode==='cash'
+                ? 'Maximizes floor — picks highest projected floor players per dollar'
+                : 'Maximizes ceiling leverage — rewards low-owned high-ceiling plays'}
+            </div>
+          </div>
+
+          {/* Row 1: Lineups + Unique */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+            <div>
+              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Lineups (1–150)</div>
+              <input className="input-field" type="number" min={1} max={150}
+                value={numLineups} onChange={e => setNum(Math.min(150,Math.max(1,+e.target.value)))} />
+            </div>
+            <div>
+              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Min unique players</div>
+              <input className="input-field" type="number" min={0} max={9}
+                value={minUnique} onChange={e => setUniq(Math.min(9,Math.max(0,+e.target.value)))} />
+            </div>
+          </div>
+
+          {/* Row 2: Salary */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+            <div>
+              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Min salary</div>
+              <input className="input-field" type="number" min={40000} max={50000} step={100}
+                value={minSalary} onChange={e => setMinSal(Math.min(50000,Math.max(40000,+e.target.value)))} />
+              <div style={{ fontSize:10, color:'#475569', marginTop:2 }}>Default $49,000</div>
+            </div>
+            <div>
+              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Max per team</div>
+              <input className="input-field" type="number" min={2} max={8}
+                value={maxPerTeam} onChange={e => setMaxTeam(Math.min(8,Math.max(2,+e.target.value)))} />
+              <div style={{ fontSize:10, color:'#475569', marginTop:2 }}>Max hitters from 1 team</div>
+            </div>
+          </div>
+
+          {/* Row 3: Exposure + Ownership */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+            <div>
+              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Max exposure %</div>
+              <input className="input-field" type="number" min={1} max={100}
+                value={maxExposure} onChange={e => setMaxExp(Math.min(100,Math.max(1,+e.target.value)))} />
+              <div style={{ fontSize:10, color:'#475569', marginTop:2 }}>
+                {maxExposure===100?'No limit':`Max ${Math.floor(maxExposure/100*numLineups)}/${numLineups} lineups`}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Max own% (GPP)</div>
+              <input className="input-field" type="number" min={0} max={100}
+                value={maxOwnership} onChange={e => setMaxOwn(Math.min(100,Math.max(0,+e.target.value)))} />
+              <div style={{ fontSize:10, color:'#475569', marginTop:2 }}>
+                {maxOwnership===0?'No limit':`Skip players >${maxOwnership}% owned`}
+              </div>
+            </div>
+          </div>
+
+          {/* Stack combos */}
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:12, color:'#94a3b8', marginBottom:6 }}>Stack combination</div>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:8 }}>
+              {[
+                { label:'None',    combo:[] },
+                { label:'4-3-1',   combo:[4,3,1] },
+                { label:'4-2-2',   combo:[4,2,2] },
+                { label:'4-2-1-1', combo:[4,2,1,1] },
+                { label:'5-3',     combo:[5,3] },
+                { label:'5-2-1',   combo:[5,2,1] },
+                { label:'5-1-1-1', combo:[5,1,1,1] },
+                { label:'4-1-1-1-1',combo:[4,1,1,1,1] },
+                { label:'3-2-2',   combo:[3,2,2] },
+                { label:'3-2-1-1', combo:[3,2,1,1] },
+              ].map(({ label, combo }) => {
+                const active = JSON.stringify(stackCombo) === JSON.stringify(combo);
+                return (
+                  <button key={label} onClick={() => setCombo(combo)} style={{
+                    padding:'4px 10px', borderRadius:5, cursor:'pointer', fontSize:11,
+                    fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
+                    border:`1px solid ${active ? 'rgba(96,165,250,0.5)' : 'rgba(255,255,255,0.08)'}`,
+                    background:active ? 'rgba(96,165,250,0.12)' : 'transparent',
+                    color:active ? '#60a5fa' : '#64748b',
+                  }}>{label}</button>
+                );
+              })}
+            </div>
+            {stackCombo.length > 0 && (
+              <div style={{ marginBottom:8 }}>
+                <div style={{ fontSize:12, color:'#94a3b8', marginBottom:4 }}>Anchor team (largest group)</div>
+                <select className="input-field" value={stackTeam} onChange={e => setStack(e.target.value)}>
+                  <option value="">Auto (best team)</option>
+                  {teams.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <div style={{ fontSize:11, color:'#475569', marginTop:4 }}>
+                  {stackCombo[0]} players from {stackTeam || 'best team'}{stackCombo.slice(1).map((n,i) => `, ${n} from another team`)}
+                </div>
+              </div>
+            )}
+          </div>
+
+
+
+          {/* Toggleable rules */}
+          <div style={{ marginBottom:12, padding:'8px 10px', background:'rgba(255,255,255,0.03)', borderRadius:6 }}>
+            <div style={{ fontSize:11, color:'#64748b', fontWeight:600, marginBottom:8 }}>RULES</div>
+            {[
+              { label:'No batters vs own pitcher',  val:ruleNoBvP,       set:setNoBvP,       recommended:true },
+              { label:'No two SPs from same game',  val:ruleNoSameGameSPs, set:setNoSameSPs, recommended:true },
+              { label:'Skip min-salary busts (<$3.5k, <7 FP)', val:ruleMinSal, set:setRuleMinSal, recommended:false },
+              { label:'No duplicate lineups',       val:true,            set:()=>{},         recommended:true, locked:true },
+            ].map(rule => (
+              <div key={rule.label} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                <button
+                  onClick={() => !rule.locked && rule.set(!rule.val)}
+                  style={{
+                    width:32, height:18, borderRadius:9, border:'none', cursor:rule.locked?'default':'pointer',
+                    background:rule.val ? '#c41e3a' : 'rgba(255,255,255,0.1)',
+                    position:'relative', flexShrink:0, transition:'background .15s',
+                    opacity:rule.locked ? 0.5 : 1,
+                  }}>
+                  <div style={{
+                    position:'absolute', top:2, width:14, height:14, borderRadius:'50%',
+                    background:'white', transition:'left .15s',
+                    left:rule.val ? 16 : 2,
+                  }} />
+                </button>
+                <span style={{ fontSize:11, color:rule.val ? '#e2e8f0' : '#475569' }}>{rule.label}</span>
+                {rule.recommended && <span style={{ fontSize:10, color:'#334155', marginLeft:'auto' }}>rec</span>}
+              </div>
+            ))}
+          </div>
+
+          <button className="btn-primary" style={{ width:'100%', padding:12, fontSize:14 }}
+            onClick={generate} disabled={players.length===0||generating}>
+            {generating ? 'Building...' : `Generate ${numLineups} lineup${numLineups!==1?'s':''}`}
+          </button>
+
+          {players.length===0 && (
+            <div style={{ fontSize:11, color:'#475569', marginTop:8, textAlign:'center' }}>
+              Upload projections in Admin first
+            </div>
+          )}
+          {warn && (
+            <div style={{ marginTop:10, background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:6, padding:'8px 12px', fontSize:12, color:'#fbbf24', lineHeight:1.5 }}>
+              {warn}
+            </div>
+          )}
+        </div>
+
+        {/* Generated lineups */}
+        {lineups.length>0 && (
+          <div className="card" style={{ padding:16, marginBottom:12 }}>
+            {/* Navigator */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <button onClick={() => goTo(activeIdx-1)} disabled={activeIdx===0} style={{
+                width:32,height:32,borderRadius:6,cursor:activeIdx===0?'not-allowed':'pointer',
+                border:'1px solid rgba(255,255,255,0.1)',background:'transparent',
+                color:activeIdx===0?'#2a2a2a':'#94a3b8',fontSize:18,lineHeight:1,
+              }}>←</button>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:16, fontWeight:700 }}>
+                  Lineup {activeIdx+1} of {lineups.length}
+                </div>
+                <div style={{ fontSize:11, color:'#475569' }}>
+                  {mode==='cash'?'Cash':'GPP'}{stackTeam?` · ${stackTeam} ${stackSize}-stack`:''}
+                </div>
+              </div>
+              <button onClick={() => goTo(activeIdx+1)} disabled={activeIdx===lineups.length-1} style={{
+                width:32,height:32,borderRadius:6,cursor:activeIdx===lineups.length-1?'not-allowed':'pointer',
+                border:'1px solid rgba(255,255,255,0.1)',background:'transparent',
+                color:activeIdx===lineups.length-1?'#2a2a2a':'#94a3b8',fontSize:18,lineHeight:1,
+              }}>→</button>
+            </div>
+
+            {/* Dots */}
+            {lineups.length>1 && lineups.length<=30 && (
+              <div style={{ display:'flex', gap:4, justifyContent:'center', marginBottom:12, flexWrap:'wrap' }}>
+                {lineups.map((_,i) => (
+                  <button key={i} onClick={() => setIdx(i)} style={{
+                    width:8,height:8,borderRadius:'50%',padding:0,border:'none',cursor:'pointer',
+                    background:i===activeIdx?'#c41e3a':'rgba(255,255,255,0.15)',
+                  }} />
+                ))}
+              </div>
+            )}
+
+            {cur && (
+              <>
+                {/* Stats */}
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:0, marginBottom:12, background:'rgba(255,255,255,0.03)', borderRadius:8, overflow:'hidden' }}>
+                  {[
+                    { label:'Proj FP',  val:cur.projFpts?.toFixed(1), color:'#22c55e' },
+                    { label:'Salary',   val:fmt$(cur.totalSalary), color:cur.totalSalary>50000?'#ef4444':'#e2e8f0' },
+                    { label:'Rem',      val:fmt$(50000-cur.totalSalary), color:'#64748b' },
+                    { label:'Cap Used', val:`${((cur.totalSalary/50000)*100).toFixed(1)}%`, color:cur.totalSalary>=49000?'#22c55e':'#f59e0b' },
+                  ].map((m,i) => (
+                    <div key={m.label} style={{ textAlign:'center', padding:'8px 4px', borderRight:i<3?'1px solid rgba(255,255,255,0.05)':'none' }}>
+                      <div style={{ fontSize:9, color:'#475569', fontFamily:"'Barlow Condensed',sans-serif", textTransform:'uppercase', letterSpacing:'.08em' }}>{m.label}</div>
+                      <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:16, fontWeight:700, color:m.color, marginTop:2 }}>{m.val}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Players */}
+                {[...cur.players]
+                  .sort((a: any, b: any) => (POS_ORDER[a.position]??9)-(POS_ORDER[b.position]??9))
+                  .map((p: any) => {
+                    const exp = lineups.length > 1 ? Math.round(((exposureMap[p.id]||0)/lineups.length)*100) : null;
+                    return (
+                      <div key={p.id} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+                        <div style={{ width:32, flexShrink:0 }}><PosBadge pos={p.position||'?'} /></div>
+                        <TeamLogo abbr={p.team||'?'} size={18} />
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:12, fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{p.player_name}</div>
+                          <div style={{ fontSize:10, color:'#475569' }}>{p.team}{p.lineup_pos?` · LP${p.lineup_pos}`:''}</div>
+                        </div>
+                        {exp !== null && (
+                          <div style={{ fontSize:10, fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700,
+                            color:exp>maxExposure?'#ef4444':exp>0?'#64748b':'transparent', flexShrink:0 }}>
+                            {exp>0?`${exp}%`:''}
+                          </div>
+                        )}
+                        <div style={{ textAlign:'right', flexShrink:0 }}>
+                          <div style={{ fontFamily:"'Barlow Condensed',sans-serif", color:'#60a5fa', fontWeight:700, fontSize:14 }}>{(p.proj_fpts||0).toFixed(1)}</div>
+                          <div style={{ fontSize:10, color:'#475569' }}>{p.salary>0?fmt$(p.salary):'—'}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                <div style={{ display:'flex', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTop:'1px solid rgba(255,255,255,0.07)' }}>
+                  <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, color:'#475569' }}>TOTAL</span>
+                  <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:17, fontWeight:700, color:'#22c55e' }}>{cur.projFpts?.toFixed(1)} FP</span>
+                </div>
+
+                {/* Download */}
+                <button onClick={() => downloadLineups(lineups)} className="btn-outline"
+                  style={{ width:'100%', marginTop:12, fontSize:13, padding:'8px 0' }}>
+                  ⬇ Download {lineups.length} lineup{lineups.length!==1?'s':''} (.csv — DK Edit Entries format)
+                </button>
+
+                {/* Contest Sim */}
+                <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:6 }}>
+                    <div style={{ fontSize:12, color:'#94a3b8', flexShrink:0 }}>Field size</div>
+                    <input className="input-field" type="number" min={10} max={200000}
+                      value={fieldSize} onChange={e => setFieldSize(Math.max(10,+e.target.value))}
+                      style={{ width:90 }} />
+                    <button className="btn-outline" onClick={runSim} disabled={simming}
+                      style={{ flex:1, fontSize:12, padding:'6px 0' }}>
+                      {simming ? '⏳ Simulating...' : '🎲 Contest Sim'}
+                    </button>
+                  </div>
+                  <div style={{ fontSize:11, color:'#475569' }}>
+                    Monte Carlo sim vs {fieldSize.toLocaleString()}-person field (500 iterations)
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Contest Sim Results */}
+        {showSim && simResults.length>0 && (
+          <div className="card" style={{ padding:16 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+              <div className="section-label" style={{ marginBottom:0 }}>Contest Sim — {fieldSize.toLocaleString()} field</div>
+              <button onClick={() => setShowSim(false)} style={{ background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:18 }}>×</button>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
+              {[
+                { label:'Avg Win%',   val:`${(simResults.reduce((s,r)=>s+r.winPct,0)/simResults.length).toFixed(1)}%`,   color:'#22c55e' },
+                { label:'Avg Top 10%',val:`${(simResults.reduce((s,r)=>s+r.top10Pct,0)/simResults.length).toFixed(1)}%`, color:'#60a5fa' },
+                { label:'Avg Top 25%',val:`${(simResults.reduce((s,r)=>s+r.top25Pct,0)/simResults.length).toFixed(1)}%`, color:'#f59e0b' },
+              ].map(m => (
+                <div key={m.label} style={{ textAlign:'center', background:'rgba(255,255,255,0.03)', borderRadius:6, padding:'8px 4px' }}>
+                  <div style={{ fontSize:10, color:'#475569', fontFamily:"'Barlow Condensed',sans-serif", textTransform:'uppercase', letterSpacing:'.06em' }}>{m.label}</div>
+                  <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:20, fontWeight:700, color:m.color }}>{m.val}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ maxHeight:280, overflowY:'auto' }}>
+              <table className="data-table" style={{ fontSize:11 }}>
+                <thead><tr>
+                  <th>#</th><th>Avg FP</th><th>Floor</th><th>Ceil</th>
+                  <th style={{ color:'#22c55e' }}>Win%</th>
+                  <th style={{ color:'#60a5fa' }}>Top10</th>
+                  <th style={{ color:'#f59e0b' }}>Top25</th>
+                  <th>Score</th>
+                </tr></thead>
+                <tbody>
+                  {simResults.map((r,i) => {
+                    const rating = r.winPct*3+r.top10Pct*1.5+r.top25Pct;
+                    const maxR = Math.max(...simResults.map(x=>x.winPct*3+x.top10Pct*1.5+x.top25Pct));
+                    const isTop = rating>=maxR*0.9;
+                    return (
+                      <tr key={i} style={{ background:isTop?'rgba(34,197,94,0.05)':'', cursor:'pointer' }}
+                          onClick={() => setIdx(i)}>
+                        <td style={{ fontWeight:600, color:isTop?'#22c55e':'#94a3b8' }}>{isTop?'★':''} L{i+1}</td>
+                        <td style={{ fontFamily:"'Barlow Condensed',sans-serif",fontWeight:600,color:'#60a5fa' }}>{r.avgScore}</td>
+                        <td style={{ color:'#64748b' }}>{r.minScore}</td>
+                        <td style={{ color:'#94a3b8' }}>{r.maxScore}</td>
+                        <td style={{ color:'#22c55e',fontWeight:600 }}>{r.winPct}%</td>
+                        <td style={{ color:'#60a5fa' }}>{r.top10Pct}%</td>
+                        <td style={{ color:'#f59e0b' }}>{r.top25Pct}%</td>
+                        <td>
+                          <div style={{ width:50,height:5,background:'rgba(255,255,255,0.06)',borderRadius:3,overflow:'hidden' }}>
+                            <div style={{ width:`${(rating/maxR)*100}%`,height:'100%',background:isTop?'#22c55e':'#c41e3a',borderRadius:3 }} />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize:11, color:'#334155', marginTop:8 }}>Click row to view lineup. ★ = best performing lineup.</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
