@@ -1,182 +1,141 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 
-const FEEDS = [
-  { id: 'UnderdogMLB',     label: 'Underdog MLB' },
-  { id: 'MLB',             label: 'MLB' },
-  { id: 'UnderdogNFP',     label: 'Underdog' },
-  { id: 'RotoWireMLB',     label: 'RotoWire' },
-  { id: 'FantasyAlarm',    label: 'Fantasy Alarm' },
-  { id: 'mlbtraderumors',  label: 'MLBTR' },
-  { id: 'Buster_ESPN',     label: 'Buster Olney' },
-  { id: 'JonHeyman',       label: 'Jon Heyman' },
-  { id: 'Ken_Rosenthal',   label: 'Ken Rosenthal' },
+const SOURCES = [
+  { id: 'all',      label: 'All News',       tag: 'all' },
+  { id: 'injuries', label: 'Injuries',       tag: 'Injury' },
+  { id: 'lineups',  label: 'Lineups',        tag: 'Lineup' },
+  { id: 'rotation', label: 'Rotations',      tag: 'Rotation' },
 ];
 
-function timeAgo(dateStr: string) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const m = Math.floor(diff / 60000);
-  const h = Math.floor(m / 60);
-  const d = Math.floor(h / 24);
+const TAG_STYLES: Record<string,{bg:string,color:string,border:string}> = {
+  Injury:   { bg:'rgba(196,30,58,0.15)',  color:'#f06070', border:'rgba(196,30,58,0.3)' },
+  Lineup:   { bg:'rgba(59,130,246,0.15)', color:'#60a5fa', border:'rgba(59,130,246,0.3)' },
+  Rotation: { bg:'rgba(139,92,246,0.15)', color:'#a78bfa', border:'rgba(139,92,246,0.3)' },
+  General:  { bg:'rgba(255,255,255,0.06)', color:'#94a3b8', border:'rgba(255,255,255,0.1)' },
+};
+
+function timeAgo(d: string) {
+  const diff = Date.now() - new Date(d).getTime();
+  const m = Math.floor(diff/60000), h = Math.floor(m/60), dy = Math.floor(h/24);
   if (m < 1) return 'just now';
-  if (m < 60) return `${m}m`;
-  if (h < 24) return `${h}h`;
-  return `${d}d`;
+  if (m < 60) return `${m}m ago`;
+  if (h < 24) return `${h}h ago`;
+  return `${dy}d ago`;
 }
 
-function PostCard({ post, handle }: { post: any; handle: string }) {
+function NewsCard({ item }: { item: any }) {
+  const s = TAG_STYLES[item.tag] || TAG_STYLES.General;
   return (
-    <a href={post.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', display: 'block' }}>
-      <div style={{
-        padding: '14px 16px',
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
-        transition: 'background .15s',
-        cursor: 'pointer',
-      }}
-        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.025)')}
-        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+    <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration:'none', display:'block' }}>
+      <div
+        style={{ padding:'14px 16px', borderBottom:'1px solid rgba(255,255,255,0.05)', cursor:'pointer', transition:'background .12s' }}
+        onMouseEnter={e=>(e.currentTarget.style.background='rgba(255,255,255,0.025)')}
+        onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
       >
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: '50%',
-            background: 'linear-gradient(135deg,#2d0810,#9b1c35)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 13, fontWeight: 700, color: '#f06070', flexShrink: 0,
-            fontFamily: "'Barlow Condensed',sans-serif",
-          }}>
-            {handle[0].toUpperCase()}
-          </div>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', lineHeight: 1.2 }}>
-              @{handle}
-            </div>
-            <div style={{ fontSize: 11, color: '#334155' }}>{timeAgo(post.published)}</div>
-          </div>
-          <div style={{ marginLeft: 'auto', color: '#1a1a2e', fontSize: 13 }}>𝕏</div>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8, marginBottom:6 }}>
+          <div style={{ fontSize:13, fontWeight:600, color:'#e2e8f0', lineHeight:1.4, flex:1 }}>{item.title}</div>
+          <span style={{ fontSize:10, color:'#334155', whiteSpace:'nowrap', marginTop:2 }}>{timeAgo(item.published)}</span>
         </div>
-
-        {/* Post text */}
-        <div style={{
-          fontSize: 13, color: '#cbd5e1', lineHeight: 1.55,
-          fontFamily: "'Barlow',sans-serif",
-          wordBreak: 'break-word',
-        }}>
-          {post.text}
-        </div>
+        {item.summary && (
+          <div style={{ fontSize:12, color:'#64748b', lineHeight:1.5, marginBottom:8 }}>
+            {item.summary.slice(0,200)}{item.summary.length>200?'…':''}
+          </div>
+        )}
+        <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:'.05em', background:s.bg, color:s.color, border:`1px solid ${s.border}` }}>
+          {item.tag}
+        </span>
       </div>
     </a>
   );
 }
 
 export default function TeamFeed() {
-  const [active, setActive] = useState('UnderdogMLB');
-  const [posts, setPosts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [source, setSource] = useState('all');
+  const [search, setSearch] = useState('');
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async (handle: string) => {
-    setLoading(true); setError(''); setPosts([]);
+  const load = useCallback(async (tag: string) => {
+    setLoading(true);
     try {
-      const res = await fetch(`/api/xfeed?handle=${handle}`);
+      const res = await fetch(`/api/feed?tag=${tag}&limit=50`);
       const data = await res.json();
-      if (data.error || !data.items?.length) {
-        setError(`Could not load @${handle} — X may be blocking the feed.`);
-      } else {
-        setPosts(data.items);
-      }
-    } catch {
-      setError('Network error loading feed.');
-    }
+      setItems(Array.isArray(data) ? data : []);
+    } catch { setItems([]); }
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(active); }, [active, load]);
+  useEffect(() => {
+    const src = SOURCES.find(s => s.id === source);
+    load(src?.tag || 'all');
+  }, [source, load]);
+
+  const filtered = items.filter(i =>
+    !search || i.title?.toLowerCase().includes(search.toLowerCase()) || i.summary?.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div>
-      {/* Feed tabs */}
-      <div style={{
-        display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16,
-        paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.06)',
-      }}>
-        {FEEDS.map(f => (
-          <button key={f.id} onClick={() => setActive(f.id)} style={{
-            padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
-            fontSize: 12, fontWeight: 600,
-            fontFamily: "'Barlow Condensed',sans-serif",
-            border: `1px solid ${active === f.id ? 'rgba(196,30,58,0.5)' : 'rgba(255,255,255,0.08)'}`,
-            background: active === f.id ? 'rgba(196,30,58,0.12)' : 'transparent',
-            color: active === f.id ? '#f06070' : '#64748b',
-            transition: 'all .15s',
-          }}>
-            @{f.id}
-          </button>
+      <style>{`
+        .feed-scroll::-webkit-scrollbar { width: 3px; }
+        .feed-scroll::-webkit-scrollbar-track { background: transparent; }
+        .feed-scroll::-webkit-scrollbar-thumb { background: rgba(196,30,58,0.5); border-radius: 3px; }
+        .feed-scroll::-webkit-scrollbar-thumb:hover { background: rgba(196,30,58,0.8); }
+      `}</style>
+
+      {/* Filter tabs + search */}
+      <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap', marginBottom:14 }}>
+        {SOURCES.map(s => (
+          <button key={s.id} onClick={()=>setSource(s.id)} style={{
+            padding:'5px 14px', borderRadius:20, cursor:'pointer', fontSize:12, fontWeight:600,
+            fontFamily:"'Barlow Condensed',sans-serif",
+            border:`1px solid ${source===s.id?'rgba(196,30,58,0.5)':'rgba(255,255,255,0.08)'}`,
+            background:source===s.id?'rgba(196,30,58,0.12)':'transparent',
+            color:source===s.id?'#f06070':'#64748b', transition:'all .15s',
+          }}>{s.label}</button>
         ))}
+        <input
+          placeholder="Search..."
+          value={search} onChange={e=>setSearch(e.target.value)}
+          style={{
+            marginLeft:'auto', background:'rgba(255,255,255,0.05)',
+            border:'1px solid rgba(255,255,255,0.08)', borderRadius:20,
+            color:'#e2e8f0', padding:'5px 14px', fontSize:12, outline:'none', width:160,
+          }}
+        />
       </div>
 
       {/* Feed container */}
-      <div style={{
-        background: '#0d0d14',
-        border: '1px solid rgba(255,255,255,0.07)',
-        borderRadius: 10,
-        maxHeight: 680,
-        overflowY: 'auto',
-        // Custom scrollbar
-        scrollbarWidth: 'thin',
-        scrollbarColor: 'rgba(196,30,58,0.4) transparent',
+      <div className="feed-scroll" style={{
+        background:'#0d0d14', border:'1px solid rgba(255,255,255,0.07)',
+        borderRadius:10, maxHeight:680, overflowY:'auto',
+        scrollbarWidth:'thin', scrollbarColor:'rgba(196,30,58,0.5) transparent',
       }}>
-        <style>{`
-          .xfeed-scroll::-webkit-scrollbar { width: 4px; }
-          .xfeed-scroll::-webkit-scrollbar-track { background: transparent; }
-          .xfeed-scroll::-webkit-scrollbar-thumb { background: rgba(196,30,58,0.4); border-radius: 4px; }
-          .xfeed-scroll::-webkit-scrollbar-thumb:hover { background: rgba(196,30,58,0.7); }
-        `}</style>
-
-        {/* Feed header */}
+        {/* Sticky header */}
         <div style={{
-          padding: '12px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-          display: 'flex', alignItems: 'center', gap: 8,
-          position: 'sticky', top: 0, background: '#0d0d14', zIndex: 1,
+          padding:'10px 16px', borderBottom:'1px solid rgba(255,255,255,0.07)',
+          display:'flex', alignItems:'center', gap:8,
+          position:'sticky', top:0, background:'#0d0d14', zIndex:1,
         }}>
-          <span style={{ fontSize: 14, color: '#1a8cd8' }}>𝕏</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>@{active}</span>
-          {loading && <span style={{ fontSize: 11, color: '#334155', marginLeft: 4 }}>loading...</span>}
-          <button onClick={() => load(active)} style={{
-            marginLeft: 'auto', background: 'none', border: 'none',
-            color: '#334155', cursor: 'pointer', fontSize: 14, padding: '2px 6px',
-          }} title="Refresh">↻</button>
+          <span style={{ fontSize:12, fontWeight:700, color:'#94a3b8', fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:'.06em', textTransform:'uppercase' }}>
+            MLB News Feed
+          </span>
+          {loading && <span style={{ fontSize:11, color:'#334155' }}>loading...</span>}
+          {!loading && <span style={{ fontSize:11, color:'#334155', marginLeft:'auto' }}>{filtered.length} stories</span>}
         </div>
 
-        {loading && (
-          <div style={{ padding: 40, textAlign: 'center', color: '#334155', fontSize: 13 }}>
-            Fetching posts from @{active}...
-          </div>
+        {loading ? (
+          <div style={{ padding:40, textAlign:'center', color:'#334155', fontSize:13 }}>Loading...</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding:40, textAlign:'center', color:'#334155', fontSize:13 }}>No stories found</div>
+        ) : (
+          filtered.map(item => <NewsCard key={item.id} item={item} />)
         )}
+      </div>
 
-        {!loading && error && (
-          <div style={{ padding: 32, textAlign: 'center' }}>
-            <div style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>{error}</div>
-            <a href={`https://twitter.com/${active}`} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: 12, color: '#1a8cd8', textDecoration: 'none' }}>
-              View @{active} on X →
-            </a>
-          </div>
-        )}
-
-        {!loading && !error && posts.map(post => (
-          <PostCard key={post.id} post={post} handle={active} />
-        ))}
-
-        {!loading && !error && posts.length > 0 && (
-          <div style={{ padding: '12px 16px', textAlign: 'center' }}>
-            <a href={`https://twitter.com/${active}`} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: 12, color: '#334155', textDecoration: 'none' }}>
-              View all on X →
-            </a>
-          </div>
-        )}
+      <div style={{ marginTop:8, fontSize:11, color:'#1e293b', textAlign:'center' }}>
+        Powered by MLB.com · RotoWire · For entertainment purposes only
       </div>
     </div>
   );
