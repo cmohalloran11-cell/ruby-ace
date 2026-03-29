@@ -1,111 +1,167 @@
 // app/api/props/route.ts
+// Generates player prop picks from theBatX projections in Supabase
+// No external API key needed
 import { NextResponse } from 'next/server';
+import { getServiceSupabase } from '@/lib/supabase';
 
-export const revalidate = 600; // 10 min cache
+export const revalidate = 300;
 
-const STAT_LABELS: Record<string, string> = {
-  batter_home_runs: 'Home Runs',
-  batter_hits: 'Hits',
-  batter_total_bases: 'Total Bases',
-  batter_rbis: 'RBIs',
-  batter_runs_scored: 'Runs Scored',
-  batter_stolen_bases: 'Stolen Bases',
-  batter_strikeouts: 'Strikeouts (Batter)',
-  pitcher_strikeouts: 'Strikeouts',
-  pitcher_hits_allowed: 'Hits Allowed',
-  pitcher_earned_runs: 'Earned Runs',
-  pitcher_walks: 'Walks',
-  pitcher_outs: 'Outs Recorded',
-};
+function americanOdds(impliedProb: number): number {
+  // Convert implied probability to American odds
+  if (impliedProb >= 0.5) return Math.round(-(impliedProb / (1 - impliedProb)) * 100);
+  return Math.round(((1 - impliedProb) / impliedProb) * 100);
+}
+
+function calcConfidence(proj: number, line: number, stdDev: number): number {
+  // Z-score based confidence (how many std devs above the line)
+  const z = (proj - line) / (stdDev || 1);
+  return Math.min(9.8, Math.max(5.0, 6.5 + z * 1.2));
+}
+
+function calcHitRate(proj: number, line: number, stdDev: number): number {
+  // Rough probability of going over using normal distribution approximation
+  const z = (proj - line) / (stdDev || 1);
+  const p = 0.5 * (1 + Math.tanh(z * 0.7));
+  return Math.round(Math.min(82, Math.max(42, p * 100)));
+}
 
 export async function GET() {
-  const key = process.env.ODDS_API_KEY;
-  if (!key) {
-    return NextResponse.json({ error: 'Odds API key not configured' }, { status: 500 });
-  }
-
   try {
-    // Step 1: get today's MLB event IDs
-    const eventsRes = await fetch(
-      `https://api.the-odds-api.com/v4/sports/baseball_mlb/events?apiKey=${key}`,
-      { next: { revalidate: 600 } }
-    );
+    const sb = getServiceSupabase();
 
-    if (!eventsRes.ok) {
-      throw new Error(`Odds API events error: ${eventsRes.status}`);
+    // Get most recent slate
+    const { data: latest } = await sb
+      .from('projections')
+      .select('slate_date')
+      .order('slate_date', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!latest?.slate_date) return NextResponse.json([]);
+
+    const { data: players, error } = await sb
+      .from('projections')
+      .select('*')
+      .eq('slate_date', latest.slate_date)
+      .gt('proj_fpts', 0);
+
+    if (error || !players?.length) return NextResponse.json([]);
+
+    const picks: any[] = [];
+
+    for (const p of players) {
+      const name = p.player_name;
+      const team = p.team;
+      const opp  = p.opp || '';
+      const pos  = p.position;
+      const game = opp ? `${team} vs ${opp}` : team;
+
+      if (pos === 'SP') {
+        // Pitcher strikeout over/under
+        const kProj = parseFloat(p.proj_k) || 0;
+        if (kProj >= 3) {
+          const line = Math.round(kProj * 0.9 * 2) / 2; // round to nearest 0.5
+          const conf = calcConfidence(kProj, line, kProj * 0.3);
+          const hr   = calcHitRate(kProj, line, kProj * 0.3);
+          picks.push({
+            player: name, team, game, stat: 'Strikeouts',
+            line, direction: 'over',
+            odds: americanOdds(hr / 100),
+            confidence: parseFloat(conf.toFixed(1)),
+            hitRate: hr,
+            projection: parseFloat(kProj.toFixed(1)),
+          });
+        }
+
+        // Pitcher outs recorded
+        const ipProj = parseFloat(p.proj_ip) || 0;
+        if (ipProj >= 3) {
+          const outsProj = ipProj * 3;
+          const line = Math.round(outsProj * 0.9 * 2) / 2;
+          const conf = calcConfidence(outsProj, line, outsProj * 0.25);
+          const hr   = calcHitRate(outsProj, line, outsProj * 0.25);
+          picks.push({
+            player: name, team, game, stat: 'Outs Recorded',
+            line, direction: 'over',
+            odds: americanOdds(hr / 100),
+            confidence: parseFloat(conf.toFixed(1)),
+            hitRate: hr,
+            projection: parseFloat(outsProj.toFixed(1)),
+          });
+        }
+      } else {
+        // Hitter hits
+        const hProj = parseFloat(p.proj_h) || 0;
+        if (hProj >= 0.6) {
+          const line = 0.5;
+          const conf = calcConfidence(hProj, line, hProj * 0.6);
+          const hr   = calcHitRate(hProj, line, hProj * 0.6);
+          picks.push({
+            player: name, team, game, stat: 'Hits',
+            line, direction: 'over',
+            odds: americanOdds(hr / 100),
+            confidence: parseFloat(conf.toFixed(1)),
+            hitRate: hr,
+            projection: parseFloat(hProj.toFixed(1)),
+          });
+        }
+
+        // Total bases
+        const tbProj = (parseFloat(p.proj_h) || 0) + (parseFloat(p.proj_hr) || 0);
+        if (tbProj >= 0.8) {
+          const line = 1.5;
+          const conf = calcConfidence(tbProj, line, tbProj * 0.5);
+          const hr   = calcHitRate(tbProj, line, tbProj * 0.5);
+          picks.push({
+            player: name, team, game, stat: 'Total Bases',
+            line, direction: tbProj > line ? 'over' : 'under',
+            odds: americanOdds(hr / 100),
+            confidence: parseFloat(conf.toFixed(1)),
+            hitRate: hr,
+            projection: parseFloat(tbProj.toFixed(1)),
+          });
+        }
+
+        // Home runs (only project if >= 0.15)
+        const hrProj = parseFloat(p.proj_hr) || 0;
+        if (hrProj >= 0.15) {
+          const line = 0.5;
+          const conf = calcConfidence(hrProj, line, hrProj * 0.8);
+          const hr   = calcHitRate(hrProj, line, hrProj * 0.8);
+          picks.push({
+            player: name, team, game, stat: 'Home Runs',
+            line, direction: 'over',
+            odds: americanOdds(hr / 100),
+            confidence: parseFloat(conf.toFixed(1)),
+            hitRate: hr,
+            projection: parseFloat(hrProj.toFixed(1)),
+          });
+        }
+
+        // RBIs
+        const rbiProj = parseFloat(p.proj_rbi) || 0;
+        if (rbiProj >= 0.4) {
+          const line = 0.5;
+          const conf = calcConfidence(rbiProj, line, rbiProj * 0.6);
+          const hr   = calcHitRate(rbiProj, line, rbiProj * 0.6);
+          picks.push({
+            player: name, team, game, stat: 'RBIs',
+            line, direction: 'over',
+            odds: americanOdds(hr / 100),
+            confidence: parseFloat(conf.toFixed(1)),
+            hitRate: hr,
+            projection: parseFloat(rbiProj.toFixed(1)),
+          });
+        }
+      }
     }
 
-    const events = await eventsRes.json();
-    if (!events.length) return NextResponse.json([]);
+    // Sort by confidence desc, cap at 100 picks
+    picks.sort((a, b) => b.confidence - a.confidence);
+    return NextResponse.json(picks.slice(0, 100));
 
-    // Step 2: fetch player props for each event (limit to first 3 to save quota)
-    const propsPromises = events.slice(0, 3).map(async (event: any) => {
-      const markets = [
-        'batter_home_runs',
-        'batter_hits',
-        'batter_total_bases',
-        'pitcher_strikeouts',
-        'batter_stolen_bases',
-      ].join(',');
-
-      const res = await fetch(
-        `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${event.id}/odds?apiKey=${key}&regions=us&markets=${markets}&oddsFormat=american`,
-        { next: { revalidate: 600 } }
-      );
-
-      if (!res.ok) return [];
-
-      const data = await res.json();
-      const bookmaker = data.bookmakers?.find((b: any) =>
-        ['draftkings', 'fanduel', 'betmgm'].includes(b.key)
-      ) || data.bookmakers?.[0];
-
-      if (!bookmaker) return [];
-
-      return bookmaker.markets.flatMap((market: any) =>
-        market.outcomes
-          .filter((o: any) => o.name === 'Over' || o.name === 'Under')
-          .map((o: any) => ({
-            player: o.description || 'Unknown',
-            stat: STAT_LABELS[market.key] || market.key,
-            line: o.point,
-            direction: o.name.toLowerCase(),
-            odds: o.price,
-            game: `${event.away_team} @ ${event.home_team}`,
-            gameId: event.id,
-            commence: event.commence_time,
-          }))
-      );
-    });
-
-    const allProps = (await Promise.all(propsPromises)).flat();
-
-    // Add confidence scores based on line value and stat type
-    const withConfidence = allProps.map((p: any) => ({
-      ...p,
-      confidence: calcConfidence(p),
-      hitRate: calcHitRate(p),
-    }));
-
-    return NextResponse.json(withConfidence);
   } catch (e: any) {
-    console.error('Props API error:', e.message);
-    // Return empty array rather than error — UI will show "no picks available"
+    console.error('Props error:', e.message);
     return NextResponse.json([]);
   }
-}
-
-function calcConfidence(pick: any): number {
-  // Simple heuristic — refine with your own model
-  const base = 6.5;
-  if (pick.stat === 'Strikeouts' && pick.direction === 'over') return Math.min(9.5, base + 1.5);
-  if (pick.stat === 'Total Bases' && pick.direction === 'over') return Math.min(9.5, base + 1.2);
-  if (pick.stat === 'Hits' && pick.direction === 'over') return Math.min(9.5, base + 0.8);
-  return parseFloat((base + Math.random() * 1.5).toFixed(1));
-}
-
-function calcHitRate(pick: any): number {
-  // Placeholder — wire to your historical data when available
-  const base = pick.direction === 'over' ? 58 : 55;
-  return Math.min(82, base + Math.floor(Math.random() * 18));
 }
