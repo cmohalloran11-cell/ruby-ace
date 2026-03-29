@@ -324,65 +324,57 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
     ? Math.max(1, Math.floor((maxExposure / 100) * totalLineups))
     : Infinity;
 
-  // Build opp map: SP team -> opponent team
-  const spOppMap = { ...oppMap };
+  // Build SP -> opponent map
+  const spOppMap: Record<string, string> = { ...oppMap };
   for (const p of pool) {
     if (p.position === 'SP' && p.opp && !spOppMap[p.team]) {
       spOppMap[p.team] = p.opp;
     }
   }
-  const batterFacesSP = (bt: string, st: string) => spOppMap[st] === bt;
+  const batterFacesSP = (bt: string, st: string) =>
+    !!(spOppMap[st] && spOppMap[st] === bt);
 
-  // Stack combo logic
-  // stackCombo e.g. [4,3,1]: biggest group gets 4 hitters from one team, next gets 3, next gets 1
-  // stackTeam pins the anchor (largest group) to a specific team; null = let optimizer choose best
-  // All groups are filled dynamically — teams are assigned as players are added
-  // This means each lineup naturally gets a DIFFERENT team combination based on scoring
-  const useCombo = stackCombo && stackCombo.length > 0 && stackCombo[0] > 1;
+  // Stack combo
+  const useCombo = !!(stackCombo && stackCombo.length > 0 && stackCombo[0] > 1);
+  const assignedGroups: (string|null)[] = useCombo ? stackCombo!.map(() => null) : [];
+  if (useCombo && stackTeam) assignedGroups[0] = stackTeam;
 
-  // assignedGroups[i] = team assigned to combo slot i
-  // slot 0 = largest group (anchor), slots 1+ filled by optimizer with best available teams
-  const assignedGroups: (string|null)[] = stackCombo ? stackCombo.map(() => null) : [];
-  if (useCombo && stackTeam) assignedGroups[0] = stackTeam; // pin anchor if specified
-
-  // How many hitters is this team allowed (based on which combo slot it's in)?
   const getComboAllowed = (team: string): number => {
-    if (!useCombo || !stackCombo) return 10; // no limit
+    if (!useCombo) return 10;
     const idx = assignedGroups.indexOf(team);
-    if (idx >= 0) return stackCombo[idx]; // team already assigned to a slot
-    // Team not assigned yet — assign to next open slot
-    const openIdx = assignedGroups.findIndex(g => g === null);
-    if (openIdx >= 0) return stackCombo[openIdx]; // will be assigned when player is added
-    return 0; // all slots filled, this team can't add more
+    if (idx >= 0) return stackCombo![idx];
+    const open = assignedGroups.findIndex(g => g === null);
+    if (open >= 0) return stackCombo![open];
+    return 0;
   };
 
-  const assignTeamToGroup = (team: string): void => {
+  const assignGroup = (team: string) => {
     if (!useCombo || assignedGroups.includes(team)) return;
-    const openIdx = assignedGroups.findIndex(g => g === null);
-    if (openIdx >= 0) assignedGroups[openIdx] = team;
+    const open = assignedGroups.findIndex(g => g === null);
+    if (open >= 0) assignedGroups[open] = team;
   };
 
-  // Score all players with flat-point noise
+  // Score players with flat noise
   const scored = pool
     .filter(p => !excluded.has(p.id))
-    .map(p => {
-      const base = compositeScore(p, mode, stackTeam);
-      const noise = noisePts > 0 ? (rng() - 0.5) * noisePts * 2 : 0;
-      return { ...p, _base: base, _score: base + noise };
-    })
+    .map(p => ({
+      ...p,
+      _score: compositeScore(p, mode, stackTeam)
+        + (noisePts > 0 ? (rng() - 0.5) * noisePts * 2 : 0),
+    }))
     .sort((a, b) => b._score - a._score);
 
   const roster: any[] = [];
   const usedIds = new Set<number>();
   let salUsed = 0;
 
-  // Lock in forced players first
+  // Locked players first
   for (const p of scored) {
     if (locked.includes(p.id) && !usedIds.has(p.id)) {
       roster.push(p);
       usedIds.add(p.id);
       salUsed += p.salary || 0;
-      if (p.position !== 'SP') assignTeamToGroup(p.team);
+      if (p.position !== 'SP') assignGroup(p.team);
     }
   }
 
@@ -395,88 +387,69 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
       if (!positions.includes(p.position)) continue;
       if (usedIds.has(p.id)) continue;
 
-      // Rule: no batter vs own pitcher
+      // No batter vs own pitcher
       if (ruleNoBatterVsPitcher) {
         if (p.position !== 'SP') {
-          if (roster.filter(r => r.position === 'SP').some(sp => batterFacesSP(p.team, sp.team))) continue;
+          if (roster.some(r => r.position === 'SP' && batterFacesSP(p.team, r.team))) continue;
         }
         if (p.position === 'SP') {
-          if (roster.filter(r => r.position !== 'SP').some(b => batterFacesSP(b.team, p.team))) continue;
+          if (roster.some(r => r.position !== 'SP' && batterFacesSP(r.team, p.team))) continue;
         }
       }
 
-      // Rule: no two SPs from same game
+      // No two SPs from same game
       if (ruleNoSameGameSPs && p.position === 'SP') {
-        const spTeams = roster.filter(r => r.position === 'SP').map(r => r.team);
-        if (spTeams.some(st => spOppMap[st] === p.team || spOppMap[p.team] === st)) continue;
+        if (roster.some(r => r.position === 'SP'
+          && (spOppMap[r.team] === p.team || spOppMap[p.team] === r.team))) continue;
       }
 
-      // Exposure limit
+      // Exposure
       if (maxExposure < 100 && !locked.includes(p.id)) {
         if ((exposureCounts[p.id] || 0) >= maxAllowed) continue;
       }
 
-      // Max per team
-      if (maxPerTeam < 10) {
-        const teamCount = roster.filter(r => r.team === p.team).length;
-        if (teamCount >= maxPerTeam) continue;
-      }
-
-      // Stack combo constraint (batters only)
+      // Stack combo (batters only)
       if (p.position !== 'SP' && useCombo) {
-        const currentCount = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
+        const curr = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
         const allowed = getComboAllowed(p.team);
-        if (allowed === 0) continue; // no slot available for this team
-        if (currentCount >= allowed) continue; // at this team's group limit
+        if (allowed === 0) continue;
+        if (curr >= allowed) continue;
       }
 
-      // Min salary filter
+      // Min salary rule
       if (ruleMinSalary && (p.salary || 0) <= 3500 && (p.proj_fpts || 0) < 7) continue;
 
-      // Salary checks — budget-aware using slot-order minimums
-      const _pSal   = p.salary || 0;
-      const _salAfter = salUsed + _pSal;
-      const _minLeft  = minSalaryNeeded(roster.length); // min cost of all future slots
-      // Hard cap: this player + minimum for all remaining slots must fit in cap
-      if (_salAfter + _minLeft > cap) continue;
-      // Floor: must be able to reach minSal with remaining slots at max $9000 each
-      const _slotsAfter = 10 - roster.length - 1;
-      if (_slotsAfter > 0 && _salAfter + _slotsAfter * 9000 < minSal) continue;
+      // Budget: this player + min for remaining slots must fit in cap
+      const pSal = p.salary || 0;
+      const salAfter = salUsed + pSal;
+      const minLeft = minSalaryNeeded(roster.length); // future slots minimum
+      if (salAfter + minLeft > cap) continue;
+
+      // Floor reachability
+      const slotsAfter = 10 - roster.length - 1;
+      if (slotsAfter > 0 && salAfter + slotsAfter * 9000 < minSal) continue;
 
       roster.push(p);
       usedIds.add(p.id);
-      salUsed += p.salary || 0;
-      if (p.position !== 'SP') assignTeamToGroup(p.team);
+      salUsed += pSal;
+      if (p.position !== 'SP') assignGroup(p.team);
       need--;
     }
 
     return need === 0;
   };
 
-  let ok = true;
   for (const slot of SLOTS) {
-    if (!fill(slot.positions, slot.count)) { ok = false; break; }
+    if (!fill(slot.positions, slot.count)) return null;
   }
 
-  if (!ok || roster.length !== 10) return null;
-
-  const totalSalary = roster.reduce((s, p) => s + (p.salary || 0), 0);
-  if (totalSalary < minSal || totalSalary > cap) return null;
-
-  // Final batter-vs-pitcher sanity
-  if (ruleNoBatterVsPitcher) {
-    for (const sp of roster.filter(p => p.position === 'SP')) {
-      for (const b of roster.filter(p => p.position !== 'SP')) {
-        if (batterFacesSP(b.team, sp.team)) return null;
-      }
-    }
-  }
-
+  if (roster.length !== 10) return null;
+  const total = roster.reduce((s, p) => s + (p.salary || 0), 0);
+  if (total < minSal || total > cap) return null;
   return roster;
 }
 
 
-// ── Main optimizer hook ───────────────────────────────────────
 export function useDFSOptimizer(players: any[]) {
 
   const optimize = useCallback(({
