@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import DailySlate from '@/components/DailySlate';
-import FantasyHelper from '@/components/FantasyHelper';
 import DFSOptimizer from '@/components/DFSOptimizer';
 import PickemPredictor from '@/components/PickemPredictor';
 import AdminPanel from '@/components/AdminPanel';
@@ -12,10 +11,8 @@ import ESPNLeague from '@/components/ESPNLeague';
 import TeamFeed from '@/components/TeamFeed';
 
 const MAIN_TABS = [
-  { id: 'fantasy', icon: '⚡', label: 'Fantasy' },
   { id: 'dfs',     icon: '🏆', label: 'DFS Optimizer' },
   { id: 'pickem',  icon: '🎯', label: "Pick'em" },
-  { id: 'league',  icon: '🏟', label: 'My League' },
   { id: 'feed',    icon: '📡', label: 'Team Feed' },
 ];
 
@@ -136,10 +133,10 @@ export default function HomePage() {
 
       {/* Page content */}
       <div style={{ maxWidth:1400, margin:'0 auto', padding:'20px 20px 60px' }}>
-        {tab === 'fantasy' && <><div className="section-label">Fantasy Baseball Helper</div><FantasyHelper /></>}
+
         {tab === 'dfs'     && <><div className="section-label">DraftKings DFS Optimizer</div><DFSOptimizer /></>}
         {tab === 'pickem'  && <><div className="section-label">Underdog Pick'em Predictor</div><PickemPredictor /></>}
-        {tab === 'league'  && <><div className="section-label">My ESPN Fantasy League</div><ESPNLeague /></>}
+
         {tab === 'feed'    && <><div className="section-label">Team Feed — Injuries · Lineups · Rotations</div><TeamFeed /></>}
         {tab === 'admin'   && (
           isAdmin ? <AdminPanel /> : (
