@@ -169,10 +169,16 @@ export default function DailySlate() {
         </div>
 
         {/* Scrollable game cards */}
-        <div style={{
+        <style>{`
+          .slate-scroll::-webkit-scrollbar { height: 3px; }
+          .slate-scroll::-webkit-scrollbar-track { background: transparent; }
+          .slate-scroll::-webkit-scrollbar-thumb { background: rgba(196,30,58,0.5); border-radius: 3px; }
+          .slate-scroll::-webkit-scrollbar-thumb:hover { background: rgba(196,30,58,0.8); }
+        `}</style>
+        <div className="slate-scroll" style={{
           display: 'flex', gap: 8, overflowX: 'auto',
-          scrollbarWidth: 'thin',
-          paddingBottom: 4,
+          scrollbarWidth: 'thin', scrollbarColor: 'rgba(196,30,58,0.5) transparent',
+          paddingBottom: 6,
         }}>
           {games.map((game: any) => (
             <GameCard key={game.id} game={game} />
