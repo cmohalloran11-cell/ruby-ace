@@ -108,12 +108,12 @@ function ProjectionsSection() {
       }).filter(s => s.team);
       const res = await fetch('/api/stack-projections', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: \`Bearer \${token}\` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ stacks }),
       });
       const data = await res.json();
-      setStackMsg(data.uploaded ? \`✅ Uploaded \${data.uploaded} team projections\` : \`❌ \${data.error}\`);
-    } catch (err: any) { setStackMsg(\`❌ \${err.message}\`); }
+      setStackMsg(data.uploaded ? `✅ Uploaded ${data.uploaded} team projections` : `❌ ${data.error}`);
+    } catch (err: any) { setStackMsg(`❌ \${err.message}`); }
     setStackSaving(false);
     if (e.target) e.target.value = '';
   };
