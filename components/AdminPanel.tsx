@@ -358,6 +358,20 @@ function StackSection() {
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const TEAM_ABBR: Record<string,string> = {
+    'Arizona Diamondbacks':'ARI','Athletics':'ATH','Atlanta Braves':'ATL',
+    'Baltimore Orioles':'BAL','Boston Red Sox':'BOS','Chicago Cubs':'CHC',
+    'Chicago White Sox':'CWS','Cincinnati Reds':'CIN','Cleveland Guardians':'CLE',
+    'Colorado Rockies':'COL','Detroit Tigers':'DET','Houston Astros':'HOU',
+    'Los Angeles Angels':'LAA','Los Angeles Dodgers':'LAD','Miami Marlins':'MIA',
+    'Milwaukee Brewers':'MIL','Minnesota Twins':'MIN','New York Mets':'NYM',
+    'New York Yankees':'NYY','Oakland Athletics':'ATH','Philadelphia Phillies':'PHI',
+    'Pittsburgh Pirates':'PIT','San Diego Padres':'SD','San Francisco Giants':'SF',
+    'Seattle Mariners':'SEA','St. Louis Cardinals':'STL','Tampa Bay Rays':'TB',
+    'Texas Rangers':'TEX','Toronto Blue Jays':'TOR','Washington Nationals':'WSH',
+    'Kansas City Royals':'KC',
+  };
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -365,21 +379,24 @@ function StackSection() {
     try {
       const text = await file.text();
       const lines = text.split('\n').filter((l:string) => l.trim());
-      const headers = lines[0].toLowerCase().split(',').map((h:string) => h.trim());
+      const headers = lines[0].toLowerCase().split(',').map((h:string) => h.trim().replace(/[^a-z0-9_]/g,''));
       const stacks = lines.slice(1).map((line:string) => {
         const cols = line.split(',');
         const get = (names: string[]) => {
           for (const n of names) { const i = headers.indexOf(n); if (i>=0) return cols[i]?.trim()||'0'; }
           return '0';
         };
+        const rawTeam = get(['team','tm']);
+        const team = TEAM_ABBR[rawTeam] || rawTeam.toUpperCase().slice(0,3);
         return {
-          team: get(['team','tm']),
-          implied_runs: parseFloat(get(['implied_runs','implied','ir']))||0,
-          team_total:   parseFloat(get(['team_total','total','tt']))||0,
+          team,
+          implied_runs: parseFloat(get(['implied_runs','implied','ir','points']))||0,
+          team_total:   parseFloat(get(['team_total','total','tt','points']))||0,
           over_under:   parseFloat(get(['over_under','ou']))||0,
           spread:       parseFloat(get(['spread','line']))||0,
+          ceiling:      parseFloat(get(['ceiling']))||0,
         };
-      }).filter((s:any) => s.team);
+      }).filter((s:any) => s.team && s.team.length <= 5 && isNaN(Number(s.team)));
       const res = await fetch('/api/stack-projections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
