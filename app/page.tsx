@@ -11,12 +11,12 @@ import TeamFeed from '@/components/TeamFeed';
 
 const MAIN_TABS = [
   { id: 'dfs',     icon: '🏆', label: 'DFS Optimizer' },
-  { id: 'pickem',  icon: '🎯', label: "Pick'em" },
+  { id: 'bets',    icon: '🎲', label: 'Bets' },
   { id: 'feed',    icon: '📡', label: 'Team Feed' },
 ];
 
 export default function HomePage() {
-  const { user, isAdmin, logout, loading } = useAuth();
+  const { user, isAdmin, isPremium, logout, loading } = useAuth();
   const [tab, setTab] = useState('dfs');
   const [showAuth, setShowAuth] = useState(false);
   const [authTab, setAuthTab] = useState<'login'|'register'>('login');
@@ -90,7 +90,7 @@ export default function HomePage() {
                       borderRadius:6, padding:'4px 10px', cursor:'pointer', color:'#94a3b8', fontSize:12,
                       fontFamily:"'Barlow',sans-serif", display:'flex', alignItems:'center', gap:5,
                     }}>
-                      ⚙ {user.username}
+                      ♦ {user.rubys_balance ?? 0} · ⚙ {user.username}
                       {user.role === 'admin' && (
                         <span style={{ padding:'1px 6px', borderRadius:20, fontSize:9, background:'rgba(196,30,58,0.2)', color:'#f06070', fontFamily:"'Barlow Condensed',sans-serif", fontWeight:700, border:'1px solid rgba(196,30,58,0.4)' }}>ADMIN</span>
                       )}
@@ -135,9 +135,20 @@ export default function HomePage() {
       <div style={{ maxWidth:1400, margin:'0 auto', padding:'20px 20px 60px' }}>
 
         {tab === 'dfs'     && <><div className="section-label">DraftKings DFS Optimizer</div><DFSOptimizer /></>}
-        {tab === 'pickem'  && <><div className="section-label">Underdog Pick'em Predictor</div><PickemPredictor /></>}
+        {tab === 'bets'    && <PickemPredictor />}
 
-        {tab === 'feed'    && <><div className="section-label">Team Feed — Injuries · Lineups · Rotations</div><TeamFeed /></>}
+        {tab === 'feed'    && (
+          isAdmin || isPremium
+            ? <TeamFeed />
+            : <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:300 }}>
+                <div className="card" style={{ padding:32, textAlign:'center', maxWidth:400 }}>
+                  <div style={{ fontSize:36, marginBottom:12 }}>💎</div>
+                  <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:20, fontWeight:700, marginBottom:8 }}>Premium Feature</div>
+                  <div style={{ color:'#64748b', fontSize:13, marginBottom:20 }}>Team Feed is available to Ruby Ace Premium subscribers.</div>
+                  <button className="btn-primary" onClick={() => window.location.href='/premium'}>Upgrade to Premium</button>
+                </div>
+              </div>
+        )}
         {tab === 'admin'   && (
           isAdmin ? <AdminPanel /> : (
             <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:300 }}>
