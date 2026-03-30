@@ -9,6 +9,9 @@ interface User {
   role: 'user' | 'admin';
   subscription: string;
   favTeams?: string[];
+  is_premium?: boolean;
+  rubys_balance?: number;
+  stripe_customer_id?: string;
 }
 
 interface AuthContextType {
@@ -19,6 +22,8 @@ interface AuthContextType {
   logout: () => void;
   token: string | null;
   isAdmin: boolean;
+  isPremium: boolean;
+  updateRubys: (balance: number) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -79,6 +84,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user, loading, login, register, logout, token,
       isAdmin: user?.role === 'admin',
+      isPremium: !!(user?.is_premium || user?.subscription === 'premium'),
+      updateRubys: (balance: number) => {
+        if (user) {
+          const updated = { ...user, rubys_balance: balance };
+          setUser(updated);
+          localStorage.setItem('mlb_user', JSON.stringify(updated));
+        }
+      },
     }}>
       {children}
     </AuthContext.Provider>
