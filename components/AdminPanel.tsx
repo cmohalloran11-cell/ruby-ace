@@ -385,8 +385,10 @@ function StackSection() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ stacks }),
       });
-      const data = await res.json();
-      setMsg(data.uploaded ? `Uploaded ${data.uploaded} teams` : `Error: ${data.error}`);
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+      if (!res.ok) setMsg(`Error: ${data.error || res.status}`);
+      else setMsg(data.uploaded ? `✅ Uploaded ${data.uploaded} teams` : `Error: ${data.error}`);
     } catch (err:any) { setMsg(`Error: ${err.message}`); }
     setSaving(false);
     if (e.target) e.target.value = '';
