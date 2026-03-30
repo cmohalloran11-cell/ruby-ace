@@ -183,7 +183,7 @@ export default function PickemPredictor() {
   useEffect(() => { loadEntries(); }, [loadEntries]);
 
   const filtered = useMemo(() => picks.filter((p:any) => {
-    if (p.confidence < minConf) return false;
+    if ((p.confidence || 0) < minConf) return false;
     if (dirFilter !== 'all' && p.direction !== dirFilter) return false;
     return true;
   }), [picks, minConf, dirFilter]);
@@ -257,7 +257,7 @@ export default function PickemPredictor() {
                 Min confidence:
                 <input type="range" min={0} max={9} step={0.5} value={minConf}
                   onChange={e=>setMinConf(+e.target.value)} style={{ width:70, accentColor:'#c41e3a' }}/>
-                <span style={{ color:'#f06070', fontWeight:700 }}>{minConf.toFixed(1)}</span>
+                <span style={{ color:'#f06070', fontWeight:700 }}>{(minConf||0).toFixed(1)}</span>
               </div>
               <span style={{ marginLeft:'auto', fontSize:12, color:'#475569' }}>{filtered.length} picks</span>
             </div>
@@ -268,7 +268,7 @@ export default function PickemPredictor() {
                 : filtered.map((pick:any) => {
                     const id = pick.player + pick.stat;
                     const isSel = selected.has(id);
-                    const col = PICK_COLORS[pick.direction] || '#94a3b8';
+                    const col = PICK_COLORS[pick.direction || 'over'] || '#94a3b8';
                     return (
                       <div key={id} onClick={()=>toggle(id)} style={{
                         display:'grid', gridTemplateColumns:'1fr auto auto auto',
@@ -278,23 +278,23 @@ export default function PickemPredictor() {
                         borderRadius:10, cursor:'pointer', transition:'all .12s',
                       }}>
                         <div>
-                          <div style={{ fontSize:13, fontWeight:600 }}>{pick.player}</div>
-                          <div style={{ fontSize:11, color:'#475569' }}>{pick.game}</div>
+                          <div style={{ fontSize:13, fontWeight:600 }}>{pick.player || '—'}</div>
+                          <div style={{ fontSize:11, color:'#475569' }}>{pick.game || ''}</div>
                         </div>
                         <div style={{ textAlign:'center' }}>
                           <div style={{ fontSize:13, fontWeight:700, color:col }}>
-                            {pick.direction.toUpperCase()} {pick.line}
+                            {(pick.direction || 'over').toUpperCase()} {pick.line ?? '—'}
                           </div>
-                          <div style={{ fontSize:11, color:'#475569' }}>{pick.stat}</div>
+                          <div style={{ fontSize:11, color:'#475569' }}>{pick.stat || ''}</div>
                         </div>
                         <div style={{ textAlign:'center' }}>
                           <div style={{ fontSize:13, fontWeight:700, color:'#94a3b8' }}>
-                            {pick.odds > 0 ? `+${pick.odds}` : pick.odds}
+                            {pick.odds != null ? (pick.odds > 0 ? `+${pick.odds}` : pick.odds) : '—'}
                           </div>
                           <div style={{ fontSize:11, color:'#475569' }}>odds</div>
                         </div>
                         <div style={{ textAlign:'center' }}>
-                          <ConfidenceMeter value={pick.confidence} max={10}/>
+                          <ConfidenceMeter value={pick.confidence || 0} max={10}/>
                           <div style={{ fontSize:10, color:'#475569' }}>conf</div>
                         </div>
                       </div>
@@ -323,7 +323,7 @@ export default function PickemPredictor() {
                         <span key={i} style={{ fontSize:11, padding:'2px 8px', borderRadius:20,
                           background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)',
                           color: p.direction==='over'?'#22c55e':'#60a5fa',
-                        }}>{p.player} — {p.direction.toUpperCase()} {p.line} {p.stat}</span>
+                        }}>{p.player} — {(p.direction||'over').toUpperCase()} {p.line||0} {p.stat||''}</span>
                       ))}
                     </div>
                     {e.rubys_earned > 0 && (
@@ -374,7 +374,7 @@ export default function PickemPredictor() {
               <div key={p.player+p.stat} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid rgba(255,255,255,0.04)', fontSize:12 }}>
                 <span style={{ color:'#e2e8f0' }}>{p.player}</span>
                 <span style={{ color: p.direction==='over'?'#22c55e':'#60a5fa', fontWeight:700 }}>
-                  {p.direction.toUpperCase()} {p.line} {p.stat}
+                  {(p.direction||'over').toUpperCase()} {p.line||0} {p.stat||''}
                 </span>
               </div>
             ))
