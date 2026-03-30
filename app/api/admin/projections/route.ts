@@ -193,10 +193,24 @@ export async function POST(request: NextRequest) {
         const rows = records.map(r => mapTheBatX(r, 'upload', slateDate)).filter(Boolean) as any[];
         if (!rows.length) return NextResponse.json({ error: `No valid players found. Columns: ${sampleKeys}. Need NAME (or PLAYER) and FPTS columns.`, inserted: 0 });
 
+        // Deduplicate by player_name — keep highest proj_fpts
+        const deduped = new Map<string, any>();
+        for (const row of rows) {
+          const key = row.player_name?.toLowerCase().trim();
+          if (!key) continue;
+          const existing = deduped.get(key);
+          if (!existing || (row.proj_fpts || 0) > (existing.proj_fpts || 0)) {
+            deduped.set(key, row);
+          }
+        }
+        const dedupedRows = Array.from(deduped.values());
+        console.log(`[Upload] ${rows.length} rows → ${dedupedRows.length} after dedup`);
+
         // Upsert in batches — handles unique(player_name, slate_date, source) constraint
+        const rows_to_use = dedupedRows;
         let inserted = 0;
         let firstError = '';
-        for (let i = 0; i < rows.length; i += 50) {
+        for (let i = 0; i < rows_to_use.length; i += 50) {
           // Core columns only — matches original schema guaranteed to exist in live DB
           // Run the SQL below in Supabase to add optional columns:
           // ALTER TABLE projections ADD COLUMN IF NOT EXISTS opp text;
@@ -204,7 +218,7 @@ export async function POST(request: NextRequest) {
           // ALTER TABLE projections ADD COLUMN IF NOT EXISTS proj_floor numeric(6,2) default 0;
           // ALTER TABLE projections ADD COLUMN IF NOT EXISTS proj_ceiling numeric(6,2) default 0;
           // ALTER TABLE projections ADD COLUMN IF NOT EXISTS lineup_pos int default 0;
-          const batch = rows.slice(i, i + 50).map((row: any) => {
+          const batch = rows_to_use.slice(i, i + 50).map((row: any) => {
             const r: Record<string, any> = {
               player_name:     row.player_name,
               team:            row.team,
@@ -251,7 +265,7 @@ export async function POST(request: NextRequest) {
         if (inserted === 0 && firstError) {
           return NextResponse.json({ error: `Upload failed: ${firstError}`, inserted: 0 });
         }
-        return NextResponse.json({ inserted, total: rows.length, source: 'upload', slateDate });
+        return NextResponse.json({ inserted, total: rows_to_use.length, source: 'upload', slateDate });
       }
     }
 
