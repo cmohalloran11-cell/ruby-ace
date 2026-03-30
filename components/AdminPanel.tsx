@@ -240,6 +240,7 @@ function InjuriesSection() {
   };
 
   return (
+    <>
     {/* Stack projections */}
     <div className="card" style={{ padding:16 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
@@ -436,5 +437,6 @@ export default function AdminPanel() {
         {section==='scoring'     && <ScoringSection />}
       </div>
     </div>
+    </>
   );
 }
