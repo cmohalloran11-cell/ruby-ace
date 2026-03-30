@@ -7,6 +7,7 @@ import { TeamLogo, LoadingSkeleton, EmptyState, fmt$ } from './ui/shared';
 
 const SIDEBAR = [
   { id:'projections', icon:'📊', label:'Projections' },
+  { id:'stacks',      icon:'📈', label:'Stack Projs' },
   { id:'injuries',    icon:'🏥', label:'Injuries' },
   { id:'users',       icon:'👥', label:'Users' },
   { id:'scoring',     icon:'⚙️',  label:'Scoring Rules' },
@@ -77,46 +78,6 @@ function ProjectionsSection() {
     setTimeout(() => setMsg(''), 5000);
   };
 
-  const [stackMsg, setStackMsg] = useState('');
-  const [stackSaving, setStackSaving] = useState(false);
-  const stackFileRef = useRef<HTMLInputElement>(null);
-
-  const handleStackUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setStackSaving(true); setStackMsg('⏳ Uploading stack projections...');
-    try {
-      const text = await file.text();
-      const lines = text.split('\n').filter(l => l.trim());
-      const headers = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/[^a-z_]/g,''));
-      const stacks = lines.slice(1).map(line => {
-        const cols = line.split(',');
-        const get = (names: string[]) => {
-          for (const n of names) {
-            const i = headers.indexOf(n);
-            if (i >= 0) return cols[i]?.trim() || '0';
-          }
-          return '0';
-        };
-        return {
-          team: get(['team','tm']),
-          implied_runs: parseFloat(get(['implied_runs','implied','imp_runs','ir'])) || 0,
-          team_total: parseFloat(get(['team_total','total','tt'])) || 0,
-          over_under: parseFloat(get(['over_under','ou','o_u'])) || 0,
-          spread: parseFloat(get(['spread','line'])) || 0,
-        };
-      }).filter(s => s.team);
-      const res = await fetch('/api/stack-projections', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ stacks }),
-      });
-      const data = await res.json();
-      setStackMsg(data.uploaded ? `✅ Uploaded ${data.uploaded} team projections` : `❌ ${data.error}`);
-    } catch (err: any) { setStackMsg(`❌ \${err.message}`); }
-    setStackSaving(false);
-    if (e.target) e.target.value = '';
-  };
 
   return (
     <div className="card" style={{ padding:16 }}>
@@ -240,23 +201,6 @@ function InjuriesSection() {
   };
 
   return (
-    <>
-    {/* Stack projections */}
-    <div className="card" style={{ padding:16 }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-        <div className="section-label" style={{ marginBottom:0 }}>Stack Projections (Team Totals)</div>
-        <button className="btn-outline" onClick={() => stackFileRef.current?.click()} disabled={stackSaving}>
-          {stackSaving ? '⏳ Uploading…' : '⬆ Upload CSV'}
-        </button>
-        <input ref={stackFileRef} type="file" accept=".csv" style={{ display:'none' }} onChange={handleStackUpload}/>
-      </div>
-      {stackMsg && <div style={{ background:'rgba(59,130,246,0.1)', border:'1px solid rgba(59,130,246,0.3)', borderRadius:6, padding:'8px 12px', color:'#93c5fd', fontSize:12, marginBottom:10 }}>{stackMsg}</div>}
-      <div style={{ fontSize:11, color:'#475569', lineHeight:1.6 }}>
-        CSV columns: <strong>team, implied_runs, team_total, over_under, spread</strong><br/>
-        Implied runs boost correlated stack picks in the optimizer automatically.
-      </div>
-    </div>
-
     <div className="card" style={{ padding:16 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
         <div className="section-label" style={{ marginBottom:0 }}>Injury & Status Report</div>
@@ -407,7 +351,65 @@ function ScoringSection() {
   );
 }
 
-/* ── Main Export ─────────────────────────────────────────── */
+/* ── Stack Projections ───────────────────────────────────────── */
+function StackSection() {
+  const { token } = useAuth();
+  const [msg, setMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSaving(true); setMsg('Uploading...');
+    try {
+      const text = await file.text();
+      const lines = text.split('\n').filter((l:string) => l.trim());
+      const headers = lines[0].toLowerCase().split(',').map((h:string) => h.trim());
+      const stacks = lines.slice(1).map((line:string) => {
+        const cols = line.split(',');
+        const get = (names: string[]) => {
+          for (const n of names) { const i = headers.indexOf(n); if (i>=0) return cols[i]?.trim()||'0'; }
+          return '0';
+        };
+        return {
+          team: get(['team','tm']),
+          implied_runs: parseFloat(get(['implied_runs','implied','ir']))||0,
+          team_total:   parseFloat(get(['team_total','total','tt']))||0,
+          over_under:   parseFloat(get(['over_under','ou']))||0,
+          spread:       parseFloat(get(['spread','line']))||0,
+        };
+      }).filter((s:any) => s.team);
+      const res = await fetch('/api/stack-projections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ stacks }),
+      });
+      const data = await res.json();
+      setMsg(data.uploaded ? `Uploaded ${data.uploaded} teams` : `Error: ${data.error}`);
+    } catch (err:any) { setMsg(`Error: ${err.message}`); }
+    setSaving(false);
+    if (e.target) e.target.value = '';
+  };
+
+  return (
+    <div className="card" style={{ padding:16 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+        <div className="section-label" style={{ marginBottom:0 }}>Stack Projections</div>
+        <button className="btn-outline" onClick={() => fileRef.current?.click()} disabled={saving}>
+          {saving ? 'Uploading...' : 'Upload CSV'}
+        </button>
+        <input ref={fileRef} type="file" accept=".csv" style={{ display:'none' }} onChange={handleUpload}/>
+      </div>
+      {msg && <div style={{ background:'rgba(59,130,246,0.1)', border:'1px solid rgba(59,130,246,0.3)', borderRadius:6, padding:'8px 12px', color:'#93c5fd', fontSize:12, marginBottom:10 }}>{msg}</div>}
+      <div style={{ fontSize:11, color:'#475569', lineHeight:1.6 }}>
+        CSV columns: <strong>team, implied_runs, team_total, over_under, spread</strong><br/>
+        Implied runs boost stacks in the optimizer automatically.
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPanel() {
   const [section, setSection] = useState('projections');
   return (
@@ -432,11 +434,11 @@ export default function AdminPanel() {
       {/* Content */}
       <div>
         {section==='projections' && <ProjectionsSection />}
+        {section==='stacks'      && <StackSection />}
         {section==='injuries'    && <InjuriesSection />}
         {section==='users'       && <UsersSection />}
         {section==='scoring'     && <ScoringSection />}
       </div>
     </div>
-    </>
   );
 }
