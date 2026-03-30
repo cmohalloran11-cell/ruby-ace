@@ -69,7 +69,7 @@ function ContestSim({ picks }: { picks: any[] }) {
       for (let i = 0; i < N; i++) {
         let score = 0;
         for (const pick of picks) {
-          const proj = pick.projection || 0;
+          const proj = parseFloat(pick.projection) || parseFloat(pick.line) || 0;
           const stdDev = proj * 0.35;
           const actual = proj + (Math.random() + Math.random() - 1) * stdDev * 1.7;
           const hit = pick.direction === 'over' ? actual > pick.line : actual < pick.line;
@@ -80,11 +80,11 @@ function ContestSim({ picks }: { picks: any[] }) {
       }
 
       scores.sort((a,b) => a - b);
-      const cashRate = (cashWins / N * 100).toFixed(1);
-      const p50 = scores[Math.floor(N * 0.5)].toFixed(1);
-      const p75 = scores[Math.floor(N * 0.75)].toFixed(1);
-      const p90 = scores[Math.floor(N * 0.9)].toFixed(1);
-      const p10 = scores[Math.floor(N * 0.1)].toFixed(1);
+      const cashRate = ((cashWins / N * 100) || 0).toFixed(1);
+      const p50 = (scores[Math.floor(N * 0.5)] || 0).toFixed(1);
+      const p75 = (scores[Math.floor(N * 0.75)] || 0).toFixed(1);
+      const p90 = (scores[Math.floor(N * 0.9)] || 0).toFixed(1);
+      const p10 = (scores[Math.floor(N * 0.1)] || 0).toFixed(1);
 
       // GPP finish distribution (simulate 1000-entry field)
       let top1=0, top10=0, top25=0;
@@ -174,9 +174,10 @@ export default function PickemPredictor() {
     if (!token) return;
     try {
       const res = await fetch('/api/picks', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) { setEntries([]); return; }
       const data = await res.json();
       setEntries(Array.isArray(data) ? data : []);
-    } catch {}
+    } catch { setEntries([]); }
   }, [token]);
 
   useEffect(() => { loadEntries(); }, [loadEntries]);
