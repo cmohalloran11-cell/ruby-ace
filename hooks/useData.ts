@@ -266,8 +266,16 @@ function compositeScore(p: any, mode: 'cash' | 'gpp', stackTeam: string | null):
     else if (own > 20) score *= 0.92;
   }
 
-  // Stack team boost
+  // Stack team boost (base)
   if (stackTeam && p.team === stackTeam && !isSP) score *= 1.25;
+
+  // Stack projection boost — if team has high implied runs, boost all batters
+  const impliedRuns = p.implied_runs || 0;
+  if (!isSP && impliedRuns > 0) {
+    // Scale: 4 implied runs = neutral, 6+ = 15% boost, 8+ = 25% boost
+    const stackBoost = Math.min(1.25, 1 + Math.max(0, (impliedRuns - 4) / 20));
+    score *= stackBoost;
+  }
 
   return score;
 }
