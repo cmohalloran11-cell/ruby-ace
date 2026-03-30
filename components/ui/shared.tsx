@@ -62,14 +62,15 @@ export function TeamLogo({ abbr, size = 28 }: { abbr: string; size?: number }) {
 }
 
 export function ConfidenceMeter({ score }: { score: number }) {
-  const color = score >= 8.5 ? '#22c55e' : score >= 7 ? '#f59e0b' : '#ef4444';
+  const s = score || 0;
+  const color = s >= 8.5 ? '#22c55e' : s >= 7 ? '#f59e0b' : '#ef4444';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       <div style={{ flex: 1, height: 4, background: '#1e293b', borderRadius: 2, overflow: 'hidden', minWidth: 60 }}>
-        <div style={{ width: `${score * 10}%`, height: '100%', background: color, borderRadius: 2 }} />
+        <div style={{ width: `${s * 10}%`, height: '100%', background: color, borderRadius: 2 }} />
       </div>
       <span style={{ fontFamily: "'Barlow Condensed',sans-serif", color, fontWeight: 700, fontSize: 13, minWidth: 28 }}>
-        {score.toFixed(1)}
+        {s.toFixed(1)}
       </span>
     </div>
   );
