@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const user = await verifyToken(req);
-  if (!user?.isAdmin) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
+  if (!user || user.role !== 'admin') return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
   const { stacks, slate_date } = await req.json();
   if (!Array.isArray(stacks)) return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
@@ -38,9 +38,13 @@ export async function POST(req: NextRequest) {
     updated_at: new Date().toISOString(),
   }));
 
+  console.log('[StackProj] Upserting', rows.length, 'rows:', JSON.stringify(rows.slice(0,2)));
   const { error } = await sb.from('stack_projections')
     .upsert(rows, { onConflict: 'team,slate_date' });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error('[StackProj] DB error:', error);
+    return NextResponse.json({ error: error.message, detail: error.details }, { status: 500 });
+  }
   return NextResponse.json({ uploaded: rows.length });
 }
