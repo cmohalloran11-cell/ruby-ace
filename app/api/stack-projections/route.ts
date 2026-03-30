@@ -28,13 +28,13 @@ export async function POST(req: NextRequest) {
   const date = slate_date || new Date().toISOString().split('T')[0];
 
   const rows = stacks.map((s: any) => ({
-    team: s.team?.toUpperCase(),
+    team: (s.team || '').toUpperCase(),
     slate_date: date,
     implied_runs: parseFloat(s.implied_runs) || 0,
-    team_total: parseFloat(s.team_total) || 0,
+    team_total: parseFloat(s.team_total) || parseFloat(s.implied_runs) || 0,
     over_under: parseFloat(s.over_under) || 0,
     spread: parseFloat(s.spread) || 0,
-    source: s.source || 'manual',
+    source: s.source || 'thebatx',
     updated_at: new Date().toISOString(),
   }));
 
