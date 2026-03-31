@@ -500,7 +500,7 @@ export function useDFSOptimizer(players: any[]) {
     const usedHashes = new Set<string>();
     let seed = 0;
 
-    for (let attempt = 0; attempt < numLineups * 300 && lineups.length < numLineups; attempt++) {
+    for (let attempt = 0; attempt < numLineups * 1000 && lineups.length < numLineups; attempt++) {
       seed++;
       const noisePts = (lineups.length / Math.max(numLineups, 1)) * 4;
       const stackCombo = stackCombos[lineups.length % stackCombos.length] || [];
