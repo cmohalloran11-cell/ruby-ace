@@ -225,10 +225,12 @@ const SLOT_FILL_ORDER = ['SP','SP','C','1B','2B','3B','SS','OF','OF','OF'];
 const SLOT_MIN_SAL: Record<string,number> = {
   SP: 2000, C: 2000, '1B': 2000, '2B': 2000, '3B': 2000, SS: 2000, OF: 2000
 };
+// Buffer reduction: actual minimum is lower than DK minimum to avoid false blocks
+const SLOT_MIN_BUFFER = 0.85; // use 85% of minimum to give budget room
 function minSalaryNeeded(rosterLen: number): number {
   // Minimum salary for all slots AFTER the one being filled (index rosterLen)
   const future = SLOT_FILL_ORDER.slice(rosterLen + 1);
-  return future.reduce((sum, s) => sum + (SLOT_MIN_SAL[s] || 2500), 0);
+  return Math.floor(future.reduce((sum, s) => sum + (SLOT_MIN_SAL[s] || 2000), 0) * SLOT_MIN_BUFFER);
 }
 
 // Seeded deterministic RNG (LCG)
