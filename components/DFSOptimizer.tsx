@@ -145,7 +145,7 @@ export default function DFSOptimizer() {
       const allCombos = Object.keys(COMBO_MAP);
       const allSelected = allCombos.every(k => selectedStacks.has(k));
       const activeCombos = selectedStacks.size === 0 || allSelected
-        ? [[4,2],[3,2],[4,3],[3,3],[5,2]]  // sensible defaults that are easier to satisfy
+        ? [[]]  // no hard stack enforcement — let implied runs scoring handle it
         : Array.from(selectedStacks).map(k => COMBO_MAP[k]||[]);
       // Collect debug info before optimizing
       const dbgPositions = [...new Set(players.map((p:any) => p.position))].sort().join(', ');
