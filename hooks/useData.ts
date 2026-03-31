@@ -421,13 +421,10 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
       // Min salary rule
       if (ruleMinSalary && (p.salary || 0) <= 3500 && (p.proj_fpts || 0) < 7) continue;
 
-      // Budget: this player + min for remaining slots must fit in cap
+      // Budget: only enforce hard cap, not min-salary lookahead
       const pSal = p.salary || 0;
       const salAfter = salUsed + pSal;
-      const minLeft = minSalaryNeeded(roster.length); // future slots minimum
-      if (salAfter + minLeft > cap) continue;
-
-      // No floor reachability check — DK has no hard minimum salary requirement
+      if (salAfter > cap) continue;
 
       roster.push(p);
       usedIds.add(p.id);
