@@ -35,12 +35,15 @@ export async function POST(req: NextRequest) {
   const rows = stacks.map((s: any) => ({
     team: (s.team || '').toUpperCase(),
     slate_date: date,
-    implied_runs: parseFloat(s.implied_runs) || 0,
-    team_total: parseFloat(s.team_total) || parseFloat(s.implied_runs) || 0,
-    over_under: parseFloat(s.over_under) || 0,
-    spread: parseFloat(s.spread) || 0,
-    source: s.source || 'thebatx',
-    updated_at: new Date().toISOString(),
+    implied_runs:   parseFloat(s.implied_runs) || 0,
+    team_total:     parseFloat(s.team_total) || parseFloat(s.implied_runs) || 0,
+    over_under:     parseFloat(s.over_under) || 0,
+    spread:         parseFloat(s.spread) || 0,
+    ceiling:        parseFloat(s.ceiling) || 0,
+    top_25_stacks:  parseInt(s.top_25_stacks) || 0,
+    top_100_stacks: parseInt(s.top_100_stacks) || 0,
+    source:         s.source || 'thebatx',
+    updated_at:     new Date().toISOString(),
   }));
 
   console.log('[StackProj] Upserting', rows.length, 'rows:', JSON.stringify(rows.slice(0,2)));
