@@ -84,7 +84,7 @@ export default function PremiumPage() {
         {/* Price card */}
         <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(196,30,58,0.3)', borderRadius:16, padding:28, marginBottom:20 }}>
           <div style={{ display:'flex', alignItems:'baseline', gap:8, marginBottom:6 }}>
-            <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:48, fontWeight:800, color:'#e2e8f0', lineHeight:1 }}>$14.99</span>
+            <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:48, fontWeight:800, color:'#e2e8f0', lineHeight:1 }}>$9.99</span>
             <span style={{ fontSize:14, color:'#475569' }}>/month</span>
           </div>
           <div style={{ fontSize:12, color:'#475569', marginBottom:24 }}>Cancel anytime · No contracts</div>
