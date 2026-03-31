@@ -223,7 +223,7 @@ const SLOTS = [
 // Used for budget-aware selection — ensures enough salary left for later slots
 const SLOT_FILL_ORDER = ['SP','SP','C','1B','2B','3B','SS','OF','OF','OF'];
 const SLOT_MIN_SAL: Record<string,number> = {
-  SP: 3000, C: 2500, '1B': 2500, '2B': 2500, '3B': 2500, SS: 2500, OF: 2000
+  SP: 2000, C: 2000, '1B': 2000, '2B': 2000, '3B': 2000, SS: 2000, OF: 2000
 };
 function minSalaryNeeded(rosterLen: number): number {
   // Minimum salary for all slots AFTER the one being filled (index rosterLen)
