@@ -25,6 +25,7 @@ function AdWatchButton({ onEarned }: { onEarned: (n: number) => void }) {
   const [msg, setMsg] = useState('');
 
   const watch = async () => {
+    if (!token) { setMsg('Sign in first'); return; }
     setWatching(true); setMsg(''); setCountdown(5);
     const t = setInterval(() => setCountdown(c => { if (c <= 1) { clearInterval(t); } return c - 1; }), 1000);
     await new Promise(r => setTimeout(r, 5000));
@@ -35,9 +36,10 @@ function AdWatchButton({ onEarned }: { onEarned: (n: number) => void }) {
         body: JSON.stringify({ reason: 'ad_watch' }),
       });
       const data = await res.json();
-      if (data.earned) { onEarned(data.balance); setMsg(`+${data.earned} ♦ Rubys earned!`); }
+      if (res.status === 401) { setMsg('Sign in to earn Rubys'); }
+      else if (data.earned) { onEarned(data.balance); setMsg(`+${data.earned} ♦ Rubys earned!`); }
       else setMsg(data.error || 'Error');
-    } catch { setMsg('Error'); }
+    } catch { setMsg('Network error'); }
     setWatching(false);
   };
 
