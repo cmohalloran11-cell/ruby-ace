@@ -18,8 +18,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await verifyToken(req);
-  if (!user || user.role !== 'admin') return NextResponse.json({ error: 'Admin only' }, { status: 403 });
+  try { await requireAdmin(req as any); } catch {
+    return NextResponse.json({ error: 'Admin only' }, { status: 403 });
+  }
 
   const { stacks, slate_date } = await req.json();
   if (!Array.isArray(stacks)) return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
