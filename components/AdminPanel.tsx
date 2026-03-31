@@ -390,11 +390,13 @@ function StackSection() {
         const team = TEAM_ABBR[rawTeam] || rawTeam.toUpperCase().slice(0,3);
         return {
           team,
-          implied_runs: parseFloat(get(['implied_runs','implied','ir','points']))||0,
-          team_total:   parseFloat(get(['team_total','total','tt','points']))||0,
-          over_under:   parseFloat(get(['over_under','ou']))||0,
-          spread:       parseFloat(get(['spread','line']))||0,
-          ceiling:      parseFloat(get(['ceiling']))||0,
+          implied_runs:    parseFloat(get(['implied_runs','implied','ir','points']))||0,
+          team_total:      parseFloat(get(['team_total','total','tt','points']))||0,
+          over_under:      parseFloat(get(['over_under','ou']))||0,
+          spread:          parseFloat(get(['spread','line']))||0,
+          ceiling:         parseFloat(get(['ceiling']))||0,
+          top_25_stacks:   parseInt(get(['top_25_stacks','top25']))||0,
+          top_100_stacks:  parseInt(get(['top_100_stacks','top100']))||0,
         };
       }).filter((s:any) => s.team && s.team.length <= 5 && isNaN(Number(s.team)));
       const res = await fetch('/api/stack-projections', {
@@ -411,6 +413,15 @@ function StackSection() {
     if (e.target) e.target.value = '';
   };
 
+  const [stacks, setStacks] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/stack-projections')
+      .then(r => r.json())
+      .then(d => setStacks(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, [msg]);
+
   return (
     <div className="card" style={{ padding:16 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
@@ -421,10 +432,40 @@ function StackSection() {
         <input ref={fileRef} type="file" accept=".csv" style={{ display:'none' }} onChange={handleUpload}/>
       </div>
       {msg && <div style={{ background:'rgba(59,130,246,0.1)', border:'1px solid rgba(59,130,246,0.3)', borderRadius:6, padding:'8px 12px', color:'#93c5fd', fontSize:12, marginBottom:10 }}>{msg}</div>}
-      <div style={{ fontSize:11, color:'#475569', lineHeight:1.6 }}>
+      <div style={{ fontSize:11, color:'#475569', lineHeight:1.6, marginBottom:12 }}>
         CSV columns: <strong>team, implied_runs, team_total, over_under, spread</strong><br/>
-        Implied runs boost stacks in the optimizer automatically.
+        Implied runs boost correlated batters in the optimizer automatically.
       </div>
+      {stacks.length > 0 && (
+        <div style={{ maxHeight:320, overflowY:'auto' }}>
+          <table className="data-table">
+            <thead><tr>
+              <th>Rank</th><th>Team</th><th>Implied Runs</th><th>Ceiling</th>
+              <th style={{ fontSize:10 }}>Top 25%</th><th style={{ fontSize:10 }}>Top 10%</th>
+            </tr></thead>
+            <tbody>
+              {stacks.map((s:any, i:number) => (
+                <tr key={s.team}>
+                  <td style={{ color:'#475569', fontSize:11 }}>#{i+1}</td>
+                  <td><strong style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:15 }}>{s.team}</strong></td>
+                  <td>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <div style={{ width:80, height:6, background:'#1e293b', borderRadius:3, overflow:'hidden' }}>
+                        <div style={{ width:`${Math.min(100,(s.implied_runs/50)*100)}%`, height:'100%', background: s.implied_runs>=38?'#22c55e':s.implied_runs>=34?'#f59e0b':'#64748b', borderRadius:3 }}/>
+                      </div>
+                      <span style={{ fontWeight:700, color: s.implied_runs>=38?'#22c55e':s.implied_runs>=34?'#f59e0b':'#94a3b8' }}>{s.implied_runs}</span>
+                    </div>
+                  </td>
+                  <td style={{ color:'#64748b', fontSize:12 }}>{s.ceiling || '—'}</td>
+                  <td style={{ color:'#475569', fontSize:11 }}>{s.top_25_stacks || '—'}</td>
+                  <td style={{ color:'#475569', fontSize:11 }}>{s.top_100_stacks || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {stacks.length === 0 && <div style={{ fontSize:12, color:'#334155', textAlign:'center', padding:'16px 0' }}>No stack projections uploaded yet.</div>}
     </div>
   );
 }
