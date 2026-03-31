@@ -18,9 +18,13 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireAdmin(req as any); } catch {
-    return NextResponse.json({ error: 'Admin only' }, { status: 403 });
-  }
+  const authHeader = req.headers.get('authorization') || req.headers.get('Authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return NextResponse.json({ error: 'No token' }, { status: 401 });
+  let user: any;
+  try { const { verifyToken: vt } = await import('@/lib/auth'); user = vt(token); }
+  catch { return NextResponse.json({ error: 'Invalid token' }, { status: 401 }); }
+  if (user?.role !== 'admin') return NextResponse.json({ error: 'Admin only', role: user?.role }, { status: 403 });
 
   const { stacks, slate_date } = await req.json();
   if (!Array.isArray(stacks)) return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
