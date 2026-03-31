@@ -168,7 +168,7 @@ export default function HomePage() {
       {/* Footer */}
       <div style={{ borderTop:'1px solid rgba(196,30,58,0.08)', padding:'12px 20px' }}>
         <div style={{ maxWidth:1400, margin:'0 auto', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
-          <div style={{ color:'#1e1e1e', fontSize:11 }}>Ruby Ace · MLB Stats API · Open-Meteo · The Odds API · For entertainment purposes only</div>
+          <div style={{ color:'#1e1e1e', fontSize:11 }}>Ruby Ace · For entertainment purposes only · <a href="/privacy" style={{color:'#334155',textDecoration:'none'}}>Privacy</a> · <a href="/terms" style={{color:'#334155',textDecoration:'none'}}>Terms</a></div>
           {!user && <button className="btn-primary" style={{ fontSize:11, padding:'4px 12px' }} onClick={openRegister}>Create Free Account</button>}
         </div>
       </div>
