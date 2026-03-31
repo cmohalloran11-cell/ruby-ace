@@ -83,6 +83,8 @@ export default function HomePage() {
                 <span style={{ color:'#2a2a2a', fontSize:11 }}>
                   {new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
                 </span>
+                <a href="/shop" style={{ fontSize:12, color:'#94a3b8', textDecoration:'none', padding:'4px 10px', border:'1px solid rgba(255,255,255,0.08)', borderRadius:6, fontFamily:"'Barlow',sans-serif" }}>🛒 Shop</a>
+
                 {user ? (
                   <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                     <button onClick={() => setShowSettings(true)} style={{
