@@ -100,6 +100,7 @@ export default function DFSOptimizer() {
   const [tab, setTab] = useState<'minexp'|'maxexp'|'stacks'|'projections'|'players'>('players');
   const [numLineups, setNum] = useState(20);
   const [generating, setGen] = useState(false);
+  const [genProgress, setGenProgress] = useState(0);
   const [lineups, setLineups] = useState<any[][]>([]);
   const [contestInfo, setContestInfo] = useState<{entryIds:string[],name:string,id:string,fee:string}|null>(null);
   const [dkFileName, setDkFileName] = useState('');
@@ -125,10 +126,27 @@ export default function DFSOptimizer() {
   const inp = {background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:6,color:'#e2e8f0',padding:'6px 10px',fontSize:13} as const;
   const card = {background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:10,padding:20,marginBottom:16} as const;
 
+  const saveSettings = async () => {
+    if (!user) return;
+    try {
+      await fetch('/api/optimizer-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(window as any).__token}` },
+        body: JSON.stringify({ numLineups, maxExposure: defaultMaxExp, minSalary, avoidOpp, maxOverlap, selectedStacks: Array.from(selectedStacks), mode: 'cash' }),
+      });
+    } catch {}
+  };
+
   const generate = () => {
-    setGen(true); setWarn('');
+    setGen(true); setWarn(''); setGenProgress(0);
+    saveSettings();
     setTimeout(() => {
-      const activeCombos = selectedStacks.size === 0 ? [[]] : Array.from(selectedStacks).map(k => COMBO_MAP[k]||[]);
+      // If all (or most) combos selected, treat as "any stack" — rotate through but don't hard-enforce
+      const allCombos = Object.keys(COMBO_MAP);
+      const allSelected = allCombos.every(k => selectedStacks.has(k));
+      const activeCombos = selectedStacks.size === 0 || allSelected
+        ? [[4,2],[3,2],[4,3],[3,3],[5,2]]  // sensible defaults that are easier to satisfy
+        : Array.from(selectedStacks).map(k => COMBO_MAP[k]||[]);
       // Collect debug info before optimizing
       const dbgPositions = [...new Set(players.map((p:any) => p.position))].sort().join(', ');
       const dbgSalary = players.filter((p:any) => (p.salary||0) > 0).length;
@@ -551,8 +569,8 @@ export default function DFSOptimizer() {
       <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#0e0e14',borderTop:'1px solid rgba(255,255,255,0.08)',padding:'12px 24px',display:'flex',alignItems:'center',gap:16,zIndex:50}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <span style={{fontSize:13,color:'#94a3b8',whiteSpace:'nowrap' as const}}>Number of Lineups</span>
-          <input type="number" value={numLineups} min={1} max={150}
-            onChange={e=>setNum(Math.min(150,Math.max(1,+e.target.value)))}
+          <input type="number" value={numLineups} min={1} max={1500}
+            onChange={e=>setNum(Math.min(1500,Math.max(1,+e.target.value)))}
             style={{...inp,width:80,textAlign:'center' as const}}/>
         </div>
         <div style={{flex:1}}>
