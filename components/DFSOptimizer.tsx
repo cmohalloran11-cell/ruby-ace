@@ -110,6 +110,7 @@ export default function DFSOptimizer() {
   const [dkFileName, setDkFileName] = useState('');
   const [view, setView] = useState<'lineups'|'playerExp'|'teamExp'|'contestsim'>('lineups');
   const [showResults, setShowResults] = useState(false);
+  const [selectedLineups, setSelectedLineups] = useState<Set<number>>(new Set());
   const [warn, setWarn] = useState('');
   const [debug, setDebug] = useState('');
 
@@ -187,6 +188,7 @@ export default function DFSOptimizer() {
         ruleNoSameGameSPs: true, ruleMinSalary: false,
       });
       setLineups(result.map((lu:any) => lu.players));
+      setSelectedLineups(new Set());
       setGen(false); setShowResults(result.length > 0);
       if (!result.length) setWarn('Could not build any valid lineups. Check your player pool has all positions with salary > 0.');
       else if (result.length < numLineups) setWarn(`Built ${result.length} of ${numLineups} lineups.`);
@@ -457,8 +459,22 @@ export default function DFSOptimizer() {
       {showResults && lineups.length>0 && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:100,display:'flex',alignItems:'flex-start',justifyContent:'center',overflowY:'auto',padding:'30px 16px'}}>
           <div style={{background:'#13131f',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,width:'100%',maxWidth:1300,padding:24}}>
-            <div style={{display:'flex',alignItems:'center',marginBottom:16}}>
-              <div style={{fontSize:16,fontWeight:700}}>Total number of lineups: {lineups.length}</div>
+            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+              <div style={{fontSize:16,fontWeight:700}}>{lineups.length} lineups</div>
+              <div style={{fontSize:13,color:'#475569'}}>
+                {selectedLineups.size > 0 ? `${selectedLineups.size} selected` : 'None selected'}
+              </div>
+              <button onClick={()=>{
+                if (selectedLineups.size === lineups.length) setSelectedLineups(new Set());
+                else setSelectedLineups(new Set(lineups.map((_,i)=>i)));
+              }} style={{padding:'4px 12px',borderRadius:6,border:'1px solid rgba(255,255,255,0.12)',background:'rgba(255,255,255,0.05)',color:'#94a3b8',cursor:'pointer',fontSize:12}}>
+                {selectedLineups.size === lineups.length ? 'Deselect All' : 'Select All'}
+              </button>
+              {selectedLineups.size > 0 && (
+                <button onClick={()=>setSelectedLineups(new Set())} style={{padding:'4px 12px',borderRadius:6,border:'1px solid rgba(255,255,255,0.08)',background:'transparent',color:'#64748b',cursor:'pointer',fontSize:12}}>
+                  Clear Selection
+                </button>
+              )}
               <button onClick={()=>setShowResults(false)} style={{marginLeft:'auto',background:'none',border:'none',color:'#94a3b8',cursor:'pointer',fontSize:22}}>×</button>
             </div>
             {/* DKEntries upload for auto-fill */}
@@ -492,8 +508,13 @@ export default function DFSOptimizer() {
             <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
               <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:8,padding:'6px 12px',flex:1}}>
                 <span style={{fontSize:13,color:'#94a3b8'}}>{contestInfo ? '✓ Ready to upload directly to DK' : 'lineups.csv (paste entry IDs manually)'}</span>
-                <button onClick={()=>downloadCSV(lineups, contestInfo || undefined)} style={{marginLeft:'auto',background:'rgba(196,30,58,0.15)',border:'1px solid rgba(196,30,58,0.3)',borderRadius:6,color:'#c41e3a',cursor:'pointer',padding:'4px 14px',fontSize:13,fontWeight:600}}>
-                  Step 2: ↓ Download
+                <button onClick={()=>{
+                  const toDownload = selectedLineups.size > 0
+                    ? lineups.filter((_,i) => selectedLineups.has(i))
+                    : lineups;
+                  downloadCSV(toDownload, contestInfo || undefined);
+                }} style={{marginLeft:'auto',background:'rgba(196,30,58,0.15)',border:'1px solid rgba(196,30,58,0.3)',borderRadius:6,color:'#c41e3a',cursor:'pointer',padding:'4px 14px',fontSize:13,fontWeight:600}}>
+                  Step 2: ↓ Download {selectedLineups.size > 0 ? `(${selectedLineups.size})` : `(all ${lineups.length})`}
                 </button>
               </div>
               <button onClick={()=>{setLineups([]);setShowResults(false);setContestInfo(null);setDkFileName('');}} style={{padding:'8px 20px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,color:'#ef4444',cursor:'pointer',fontSize:13}}>Clear</button>
@@ -513,7 +534,15 @@ export default function DFSOptimizer() {
                 <table style={{width:'100%',borderCollapse:'collapse' as const,fontSize:12}}>
                   <thead>
                     <tr style={{borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
-                      <th style={{width:28}}/>
+                      <th style={{width:32,padding:'6px 8px'}}>
+                        <input type="checkbox" 
+                          checked={selectedLineups.size===lineups.length && lineups.length>0}
+                          onChange={()=>{
+                            if(selectedLineups.size===lineups.length) setSelectedLineups(new Set());
+                            else setSelectedLineups(new Set(lineups.map((_,i)=>i)));
+                          }}
+                          style={{accentColor:'#c41e3a',cursor:'pointer'}}/>
+                      </th>
                       {['P1','P2','C','1B','2B','3B','SS','OF1','OF2','OF3'].map(h=>(
                         <th key={h} style={{padding:'6px 10px',textAlign:'left' as const,color:'#64748b',fontSize:11,fontWeight:600}}>{h}</th>
                       ))}
@@ -527,10 +556,21 @@ export default function DFSOptimizer() {
                       const cells=[byPos.SP[0],byPos.SP[1],byPos.C[0],byPos['1B'][0],byPos['2B'][0],byPos['3B'][0],byPos.SS[0],byPos.OF[0],byPos.OF[1],byPos.OF[2]];
                       const proj=roster.reduce((s:number,p:any)=>s+(p.proj_fpts||0),0);
                       return (
-                        <tr key={i} style={{borderBottom:'1px solid rgba(255,255,255,0.04)'}}
-                          onMouseEnter={e=>(e.currentTarget.style.background='rgba(255,255,255,0.025)')}
-                          onMouseLeave={e=>(e.currentTarget.style.background='')}>
-                          <td style={{padding:'6px 8px',color:'#334155',cursor:'pointer',fontSize:13}}>🗑</td>
+                        <tr key={i} 
+                          onClick={()=>{
+                            const s=new Set(selectedLineups);
+                            s.has(i)?s.delete(i):s.add(i);
+                            setSelectedLineups(s);
+                          }}
+                          style={{borderBottom:'1px solid rgba(255,255,255,0.04)',cursor:'pointer',
+                            background:selectedLineups.has(i)?'rgba(196,30,58,0.08)':undefined}}
+                          onMouseEnter={e=>{if(!selectedLineups.has(i))e.currentTarget.style.background='rgba(255,255,255,0.025)'}}
+                          onMouseLeave={e=>{if(!selectedLineups.has(i))e.currentTarget.style.background=''}}>
+                          <td style={{padding:'6px 8px'}} onClick={e=>e.stopPropagation()}>
+                            <input type="checkbox" checked={selectedLineups.has(i)}
+                              onChange={()=>{const s=new Set(selectedLineups);s.has(i)?s.delete(i):s.add(i);setSelectedLineups(s);}}
+                              style={{accentColor:'#c41e3a',cursor:'pointer'}}/>
+                          </td>
                           {cells.map((p,j)=>(
                             <td key={j} style={{padding:'6px 10px',whiteSpace:'nowrap' as const,fontSize:12}}>
                               {p?<>{p.player_name} <span style={{color:'#475569'}}>({p.team})</span></>:'—'}
