@@ -1,7 +1,9 @@
 'use client';
 // components/DFSOptimizer.tsx — DFO-style layout
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useProjections, useDFSOptimizer } from '@/hooks/useData';
+import { useAuth } from '@/contexts/AuthContext';
+import ContestSim from './ContestSim';
 
 const SLOTS = ['P','P','C','1B','2B','3B','SS','OF','OF','OF'];
 const COMBO_MAP: Record<string, number[]> = {
@@ -96,15 +98,17 @@ function Slider({value,min,max,onChange,label}:{value:number,min:number,max:numb
 export default function DFSOptimizer() {
   const { players, loading } = useProjections();
   const { optimize } = useDFSOptimizer(players);
+  const { user, token, isPremium } = useAuth() as any;
 
   const [tab, setTab] = useState<'minexp'|'maxexp'|'stacks'|'projections'|'players'>('players');
   const [numLineups, setNum] = useState(20);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [generating, setGen] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
   const [lineups, setLineups] = useState<any[][]>([]);
   const [contestInfo, setContestInfo] = useState<{entryIds:string[],name:string,id:string,fee:string}|null>(null);
   const [dkFileName, setDkFileName] = useState('');
-  const [view, setView] = useState<'lineups'|'playerExp'|'teamExp'>('lineups');
+  const [view, setView] = useState<'lineups'|'playerExp'|'teamExp'|'contestsim'>('lineups');
   const [showResults, setShowResults] = useState(false);
   const [warn, setWarn] = useState('');
   const [debug, setDebug] = useState('');
@@ -123,6 +127,25 @@ export default function DFSOptimizer() {
   const [posFilter, setPos] = useState('All');
   const [search, setSearch] = useState('');
 
+  const MAX_LINEUPS = isPremium ? 5000 : 150;
+
+  // Load saved settings on mount
+  useEffect(() => {
+    if (!token || settingsLoaded) return;
+    fetch('/api/optimizer-settings', {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json()).then(d => {
+      if (!d) return;
+      if (d.num_lineups)    setNum(d.num_lineups);
+      if (d.max_exposure)   setMaxExp(d.max_exposure);
+      if (d.min_salary)     setMinSal(d.min_salary);
+      if (d.avoid_opp != null) setAvoidOpp(d.avoid_opp);
+      if (d.max_overlap)    setOverlap(d.max_overlap);
+      if (d.selected_stacks && Array.isArray(d.selected_stacks)) setStacks(new Set(d.selected_stacks));
+      setSettingsLoaded(true);
+    }).catch(() => setSettingsLoaded(true));
+  }, [token]);
+
   const inp = {background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:6,color:'#e2e8f0',padding:'6px 10px',fontSize:13} as const;
   const card = {background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:10,padding:20,marginBottom:16} as const;
 
@@ -131,7 +154,7 @@ export default function DFSOptimizer() {
     try {
       await fetch('/api/optimizer-settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(window as any).__token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ numLineups, maxExposure: defaultMaxExp, minSalary, avoidOpp, maxOverlap, selectedStacks: Array.from(selectedStacks), mode: 'cash' }),
       });
     } catch {}
@@ -569,8 +592,8 @@ export default function DFSOptimizer() {
       <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#0e0e14',borderTop:'1px solid rgba(255,255,255,0.08)',padding:'12px 24px',display:'flex',alignItems:'center',gap:16,zIndex:50}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <span style={{fontSize:13,color:'#94a3b8',whiteSpace:'nowrap' as const}}>Number of Lineups</span>
-          <input type="number" value={numLineups} min={1} max={1500}
-            onChange={e=>setNum(Math.min(1500,Math.max(1,+e.target.value)))}
+          <input type="number" value={numLineups} min={1} max={MAX_LINEUPS}
+            onChange={e=>setNum(Math.min(MAX_LINEUPS,Math.max(1,+e.target.value)))}
             style={{...inp,width:80,textAlign:'center' as const}}/>
         </div>
         <div style={{flex:1}}>
