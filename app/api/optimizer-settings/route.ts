@@ -1,10 +1,13 @@
 // app/api/optimizer-settings/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
-import { verifyToken } from '@/lib/auth';
+import { verifyToken, getTokenFromHeader } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
-  const user = await verifyToken(req);
+  const tok = getTokenFromHeader(req.headers.get('authorization') ?? undefined);
+  if (!tok) return NextResponse.json(null);
+  let user: any;
+  try { user = verifyToken(tok); } catch { return NextResponse.json(null); }
   if (!user) return NextResponse.json(null);
 
   const sb = getServiceSupabase();
@@ -18,7 +21,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await verifyToken(req);
+  const tok = getTokenFromHeader(req.headers.get('authorization') ?? undefined);
+  if (!tok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  let user: any;
+  try { user = verifyToken(tok); } catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const settings = await req.json();
