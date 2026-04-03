@@ -437,6 +437,25 @@ function StackSection() {
         Implied runs boost correlated batters in the optimizer automatically.
       </div>
       {stacks.length > 0 && (
+        <button onClick={async () => {
+          if (!confirm('Clear all stack projections for today?')) return;
+          setMsg('Clearing...');
+          try {
+            const res = await fetch('/api/stack-projections', {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await res.json();
+            setMsg(`✅ Cleared ${data.deleted} teams`);
+            setStacks([]);
+          } catch { setMsg('❌ Clear failed'); }
+        }} style={{
+          padding:'5px 14px', borderRadius:6, border:'1px solid rgba(239,68,68,0.3)',
+          background:'rgba(239,68,68,0.08)', color:'#ef4444', fontSize:12,
+          cursor:'pointer', marginBottom:12,
+        }}>🗑 Clear Stack Projections</button>
+      )}
+      {stacks.length > 0 && (
         <div style={{ maxHeight:320, overflowY:'auto' }}>
           <table className="data-table">
             <thead><tr>
