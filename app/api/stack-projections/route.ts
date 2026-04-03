@@ -56,3 +56,25 @@ export async function POST(req: NextRequest) {
   }
   return NextResponse.json({ uploaded: rows.length });
 }
+
+export async function DELETE(req: NextRequest) {
+  const authHeader = req.headers.get('authorization') || req.headers.get('Authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return NextResponse.json({ error: 'No token' }, { status: 401 });
+  let user: any;
+  try { const { verifyToken: vt } = await import('@/lib/auth'); user = vt(token); }
+  catch { return NextResponse.json({ error: 'Invalid token' }, { status: 401 }); }
+  if (user?.role !== 'admin') return NextResponse.json({ error: 'Admin only' }, { status: 403 });
+
+  const sb = getServiceSupabase();
+  const { data: latest } = await sb.from('stack_projections')
+    .select('slate_date').order('slate_date', { ascending: false }).limit(1).single();
+
+  if (!latest?.slate_date) return NextResponse.json({ deleted: 0 });
+
+  const { data, error } = await sb.from('stack_projections')
+    .delete().eq('slate_date', latest.slate_date).select('id');
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ deleted: data?.length || 0, date: latest.slate_date });
+}
