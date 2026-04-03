@@ -499,12 +499,12 @@ export default function DFSOptimizer() {
               <button onClick={()=>{setLineups([]);setShowResults(false);setContestInfo(null);setDkFileName('');}} style={{padding:'8px 20px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,color:'#ef4444',cursor:'pointer',fontSize:13}}>Clear</button>
             </div>
             <div style={{display:'flex',gap:4,marginBottom:16,borderBottom:'1px solid rgba(255,255,255,0.08)',paddingBottom:10}}>
-              {(['lineups','playerExp','teamExp'] as const).map(v=>(
-                <button key={v} onClick={()=>setView(v)} style={{
+              {(['lineups','playerExp','teamExp','contestsim'] as const).map(v=>(
+                <button key={v} onClick={()=>setView(v as any)} style={{
                   padding:'6px 18px',borderRadius:8,border:'none',cursor:'pointer',fontSize:13,
                   background:view===v?'rgba(196,30,58,0.15)':'transparent',
                   color:view===v?'#c41e3a':'#64748b',fontWeight:view===v?600:400}}>
-                  {v==='lineups'?'Lineups':v==='playerExp'?'Player Exp.':'Team Exp.'}
+                  {v==='lineups'?'Lineups':v==='playerExp'?'Player Exp.':v==='teamExp'?'Team Exp.':'Contest Sim'}
                 </button>
               ))}
             </div>
@@ -565,6 +565,7 @@ export default function DFSOptimizer() {
                 </tbody>
               </table>
             )}
+            {view==='contestsim' && <ContestSim lineups={lineups}/>}
             {view==='teamExp' && (
               <table style={{width:'100%',borderCollapse:'collapse' as const,fontSize:13}}>
                 <thead>
