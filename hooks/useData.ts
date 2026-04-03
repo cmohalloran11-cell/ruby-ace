@@ -407,9 +407,10 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
           (spOppMap[r.team] === p.team || spOppMap[p.team] === r.team))) continue;
       }
 
-      // Exposure
+      // Exposure — use id or player_name as key
+      const expKey = p.id ?? p.player_name ?? p.name;
       if (maxExposure < 100 && !locked.includes(p.id)) {
-        if ((exposureCounts[p.id] || 0) >= maxAllowed) continue;
+        if ((exposureCounts[expKey] || 0) >= maxAllowed) continue;
       }
 
       roster.push(p);
@@ -519,7 +520,7 @@ export function useDFSOptimizer(players: any[]) {
 
       // No floor check — allow variance across all lineups
 
-      for (const p of roster) exposureCounts[p.id] = (exposureCounts[p.id]||0) + 1;
+      for (const p of roster) { const k = p.id ?? p.player_name ?? p.name; exposureCounts[k] = (exposureCounts[k]||0) + 1; }
       usedHashes.add(hash);
 
       lineups.push({
