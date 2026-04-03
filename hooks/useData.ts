@@ -491,7 +491,7 @@ export function useDFSOptimizer(players: any[]) {
 
     for (let attempt = 0; attempt < numLineups * 1000 && lineups.length < numLineups; attempt++) {
       seed++;
-      const noisePts = (lineups.length / Math.max(numLineups, 1)) * 4;
+      const noisePts = 2 + (lineups.length / Math.max(numLineups, 1)) * 8;
       const stackCombo = stackCombos[lineups.length % stackCombos.length] || [];
 
       const roster = buildOne(pool, {
@@ -511,15 +511,13 @@ export function useDFSOptimizer(players: any[]) {
       const hash = roster.map((p:any) => p.id).sort().join(',');
       if (usedHashes.has(hash)) continue;
 
-      if (minUnique > 0 && lineups.length > 0) {
+      // Only enforce minUnique on small pools when we have plenty of attempts left
+      if (minUnique > 1 && lineups.length > 0 && lineups.length < numLineups * 0.8) {
         const prev = new Set(lineups[lineups.length-1].players.map((p:any) => p.id));
-        if (roster.filter((p:any) => !prev.has(p.id)).length < minUnique) continue;
+        if (roster.filter((p:any) => !prev.has(p.id)).length < Math.min(minUnique, 2)) continue;
       }
 
-      if (lineups.length > 0) {
-        const fp = roster.reduce((s:number,p:any) => s+(p.proj_fpts||0), 0);
-        if (fp < lineups[0].projFpts * 0.75) continue;
-      }
+      // No floor check — allow variance across all lineups
 
       for (const p of roster) exposureCounts[p.id] = (exposureCounts[p.id]||0) + 1;
       usedHashes.add(hash);
