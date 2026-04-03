@@ -77,63 +77,82 @@ export default function ContestSim({ lineups }: { lineups: any[][] }) {
 
   const runSim = () => {
     if (!lineups.length) { setMsg('Generate lineups first'); return; }
-    setRunning(true); setMsg('Running simulations...');
+    setRunning(true); setMsg('Simulating lineup 1...');
 
-    // Run client-side to avoid payload limits
-    setTimeout(() => {
-      const N_SIM = 5000;
-      const { entrants, prizePool, entryFee } = contest;
+    const N_SIM = 1000; // per lineup — keeps browser responsive
+    const { entrants, prizePool, entryFee } = contest;
+    const results: any[] = [];
 
-      function randn() {
-        const u = 1 - Math.random(), v = Math.random();
-        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    function randn() {
+      const u = 1 - Math.random(), v = Math.random();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    function simOne(lineup: any[], li: number) {
+      const myProj = lineup.reduce((s: number, p: any) => s + (p.proj_fpts || 0), 0);
+      const myStdDev = myProj * 0.28;
+      let cashCount = 0, top1 = 0, top10 = 0, top25 = 0, totalPrize = 0;
+      const scores: number[] = [];
+      const cashPay = prizePool * 0.18 / Math.max(1, Math.floor(entrants * 0.18));
+
+      for (let sim = 0; sim < N_SIM; sim++) {
+        const myScore = Math.max(0, myProj + randn() * myStdDev);
+        scores.push(myScore);
+        let beatenBy = 0;
+        // Sample field more efficiently — 200 field players instead of full entrants
+        const sampleSize = Math.min(entrants - 1, 200);
+        for (let f = 0; f < sampleSize; f++) {
+          const fp = 35 + randn() * 8;
+          if (Math.max(0, fp + randn() * fp * 0.3) > myScore) beatenBy++;
+        }
+        const rank = Math.round(beatenBy / sampleSize * entrants) + 1;
+        const pct = rank / entrants;
+        if (pct <= 0.18) { cashCount++; totalPrize += cashPay; }
+        if (rank <= 1) top1++;
+        if (pct <= 0.10) top10++;
+        if (pct <= 0.25) top25++;
       }
 
-      const results = lineups.map((lineup, li) => {
-        const myProj = lineup.reduce((s: number, p: any) => s + (p.proj_fpts || 0), 0);
-        const myStdDev = myProj * 0.28;
-        let cashCount = 0, top1 = 0, top10 = 0, top25 = 0, totalPrize = 0;
-        const scores: number[] = [];
+      scores.sort((a, b) => a - b);
+      const avgPrize = totalPrize / N_SIM;
+      return {
+        lineupIndex: li,
+        projScore: myProj.toFixed(1),
+        cashRate: (cashCount / N_SIM * 100).toFixed(1),
+        top1Rate: (top1 / N_SIM * 100).toFixed(3),
+        top10Rate: (top10 / N_SIM * 100).toFixed(1),
+        top25Rate: (top25 / N_SIM * 100).toFixed(1),
+        avgPrize: avgPrize.toFixed(2),
+        roi: ((avgPrize / (entryFee || 0.1) - 1) * 100).toFixed(1),
+        p10Score: scores[Math.floor(N_SIM * 0.1)].toFixed(1),
+        p50Score: scores[Math.floor(N_SIM * 0.5)].toFixed(1),
+        p90Score: scores[Math.floor(N_SIM * 0.9)].toFixed(1),
+      };
+    }
 
-        for (let sim = 0; sim < N_SIM; sim++) {
-          const myScore = Math.max(0, myProj + randn() * myStdDev);
-          scores.push(myScore);
-          let beatenBy = 0;
-          for (let f = 0; f < entrants - 1; f++) {
-            const fp = 35 + randn() * 8;
-            if (Math.max(0, fp + randn() * fp * 0.3) > myScore) beatenBy++;
-          }
-          const rank = beatenBy + 1;
-          const pct = rank / entrants;
-          if (pct <= 0.18) { cashCount++; totalPrize += (prizePool * 0.18) / Math.floor(entrants * 0.18); }
-          if (rank === 1) top1++;
-          if (pct <= 0.10) top10++;
-          if (pct <= 0.25) top25++;
-        }
+    // Process lineups in chunks of 10 with setTimeout to keep UI responsive
+    const CHUNK = 10;
+    let idx = 0;
 
-        scores.sort((a, b) => a - b);
-        const avgPrize = totalPrize / N_SIM;
+    function processChunk() {
+      const end = Math.min(idx + CHUNK, lineups.length);
+      for (let i = idx; i < end; i++) {
+        results.push(simOne(lineups[i], i));
+      }
+      idx = end;
+      setMsg(`Simulating lineup ${Math.min(idx + 1, lineups.length)} of ${lineups.length}...`);
 
-        return {
-          lineupIndex: li,
-          projScore: myProj.toFixed(1),
-          cashRate: (cashCount / N_SIM * 100).toFixed(1),
-          top1Rate: (top1 / N_SIM * 100).toFixed(3),
-          top10Rate: (top10 / N_SIM * 100).toFixed(1),
-          top25Rate: (top25 / N_SIM * 100).toFixed(1),
-          avgPrize: avgPrize.toFixed(2),
-          roi: ((avgPrize / (entryFee || 0.1) - 1) * 100).toFixed(1),
-          p10Score: scores[Math.floor(N_SIM * 0.1)].toFixed(1),
-          p50Score: scores[Math.floor(N_SIM * 0.5)].toFixed(1),
-          p90Score: scores[Math.floor(N_SIM * 0.9)].toFixed(1),
-        };
-      });
+      if (idx < lineups.length) {
+        setTimeout(processChunk, 0); // yield to browser
+      } else {
+        setResults([...results]);
+        setTab('results');
+        setMsg(`${N_SIM.toLocaleString()} sims × ${lineups.length} lineups complete`);
+        setRunning(false);
+      }
+    }
 
-      setResults(results);
-      setTab('results');
-      setMsg(`Simulated ${N_SIM.toLocaleString()} contests × ${lineups.length} lineups`);
-      setRunning(false);
-    }, 50);
+    setTimeout(processChunk, 50);
   };
 
   const inp = { background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:6, color:'#e2e8f0', padding:'6px 10px', fontSize:13, width:'100%' } as const;
