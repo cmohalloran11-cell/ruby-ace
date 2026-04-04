@@ -473,6 +473,7 @@ export function useDFSOptimizer(players: any[]) {
     ruleNoSameGameSPs     = true,
     ruleMinSalary         = true,
     minExposures          = {} as Record<number,number>,
+    projVariability       = 0,
   }) => {
     // Pool: proj_fpts > 0, IPL (in probable lineup) filter, not excluded
     const excludedSet = new Set(excluded);
@@ -504,7 +505,7 @@ export function useDFSOptimizer(players: any[]) {
 
     for (let attempt = 0; attempt < numLineups * 1000 && lineups.length < numLineups; attempt++) {
       seed++;
-      const noisePts = 2 + (lineups.length / Math.max(numLineups, 1)) * 8;
+      const noisePts = (projVariability > 0 ? projVariability * 0.5 : 2) + (lineups.length / Math.max(numLineups, 1)) * 8;
       const stackCombo = stackCombos[lineups.length % stackCombos.length] || [];
 
       const roster = buildOne(pool, {
