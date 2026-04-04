@@ -607,7 +607,11 @@ export default function DFSOptimizer() {
                 </tbody>
               </table>
             )}
-            {view==='contestsim' && <ContestSim lineups={lineups} savedResults={simResults} savedContest={simContest} onResultsChange={setSimResults} onContestChange={setSimContest}/>}
+            {view==='contestsim' && <ContestSim lineups={lineups} savedResults={simResults} savedContest={simContest} onResultsChange={setSimResults} onContestChange={setSimContest}
+              onSelectLineups={(indices) => {
+                setSelectedLineups(new Set(indices));
+                setView('lineups');
+              }}/>}
             {view==='teamExp' && (
               <table style={{width:'100%',borderCollapse:'collapse' as const,fontSize:13}}>
                 <thead>
