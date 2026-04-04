@@ -312,6 +312,7 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
   const {
     locked, excluded, cap, stackTeam, stackCombo,
     mode, noisePts, maxExposure, totalLineups, exposureCounts,
+    maxPerTeam = 5,
     ruleNoBatterVsPitcher, ruleNoSameGameSPs,
     rngSeed,
   } = opts;
