@@ -548,36 +548,7 @@ export function useDFSOptimizer(players: any[]) {
       });
     }
 
-    // Enforce minimum exposures — if a player hasn't hit their min, force them into more lineups
-    if (Object.keys(minExposures).length > 0 && lineups.length > 0) {
-      for (const [idStr, minPct] of Object.entries(minExposures)) {
-        const pid = parseInt(idStr);
-        const minCount = Math.ceil((minPct / 100) * lineups.length);
-        const currentCount = lineups.filter(lu => lu.players.some((p:any) => (p.id ?? p.player_name) === pid || p.id === pid)).length;
-        if (currentCount < minCount) {
-          // Find lineups without this player and swap in worst-scoring player at same position
-          const player = pool.find(p => p.id === pid);
-          if (player) {
-            let swapped = 0;
-            for (const lu of lineups) {
-              if (swapped >= minCount - currentCount) break;
-              if (lu.players.some((p:any) => p.id === pid)) continue;
-              // Find replaceable player at same position (lowest score, not locked)
-              const pos = player.position;
-              const samePos = lu.players.filter((p:any) => p.position === pos && !locked.includes(p.id));
-              if (!samePos.length) continue;
-              const worst = samePos.sort((a:any,b:any) => (a.proj_fpts||0)-(b.proj_fpts||0))[0];
-              const newSal = lu.totalSalary - (worst.salary||0) + (player.salary||0);
-              if (newSal > DK_CAP) continue;
-              lu.players = lu.players.map((p:any) => p.id===worst.id ? player : p);
-              lu.totalSalary = newSal;
-              lu.projFpts = parseFloat(lu.players.reduce((s:number,p:any)=>s+(p.proj_fpts||0),0).toFixed(1));
-              swapped++;
-            }
-          }
-        }
-      }
-    }
+    // minExposures post-processing removed for stability
 
     console.log('[Optimizer] Built', lineups.length, '/', numLineups, 'lineups');
     return lineups;
