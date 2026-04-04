@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       max_overlap:    settings.maxOverlap    ?? 9,
       selected_stacks: settings.selectedStacks ?? [],
       mode:           settings.mode          ?? 'cash',
+      proj_variability: settings.proj_variability ?? 0,
       updated_at:     new Date().toISOString(),
     }, { onConflict: 'user_id' })
     .select()
