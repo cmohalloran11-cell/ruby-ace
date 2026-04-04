@@ -30,15 +30,21 @@ function parseContestCSV(text: string): Partial<ContestData> {
   return data;
 }
 
-export default function ContestSim({ lineups }: { lineups: any[][] }) {
+export default function ContestSim({ lineups, savedResults, savedContest, onResultsChange, onContestChange }: {
+  lineups: any[][];
+  savedResults?: any[];
+  savedContest?: any;
+  onResultsChange?: (r: any[]) => void;
+  onContestChange?: (c: any) => void;
+}) {
   const { token } = useAuth() as any;
-  const [contest, setContest] = useState<ContestData>({
+  const [contest, setContest] = useState<ContestData>(savedContest || {
     name: 'MLB $300 Dime Time',
     entrants: 8500,
     prizePool: 300,
     entryFee: 0.10,
   });
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<any[]>(savedResults || []);
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState('');
   const [tab, setTab] = useState<'setup'|'results'|'players'|'stacks'>('setup');
@@ -51,7 +57,11 @@ export default function ContestSim({ lineups }: { lineups: any[][] }) {
     const file = e.target.files?.[0]; if (!file) return;
     const text = await file.text();
     const parsed = parseContestCSV(text);
-    setContest(prev => ({ ...prev, ...parsed }));
+    setContest(prev => {
+      const updated = { ...prev, ...parsed };
+      if (onContestChange) onContestChange(updated);
+      return updated;
+    });
     setMsg(`Loaded: ${parsed.name || file.name}`);
     if (e.target) e.target.value = '';
   };
@@ -139,7 +149,9 @@ export default function ContestSim({ lineups }: { lineups: any[][] }) {
       if (idx < lineups.length) {
         setTimeout(processChunk, 0);
       } else {
-        setResults([...allResults]);
+        const final = [...allResults];
+        setResults(final);
+        if (onResultsChange) onResultsChange(final);
         setTab('results');
         setMsg(`${N_SIM.toLocaleString()} sims × ${lineups.length} lineups complete`);
         setRunning(false);
@@ -230,7 +242,7 @@ export default function ContestSim({ lineups }: { lineups: any[][] }) {
             <div style={{ display:'flex', flexDirection:'column' as const, gap:10 }}>
               <div>
                 <div style={{ fontSize:11, color:'#64748b', marginBottom:4 }}>Contest Name</div>
-                <input style={inp} value={contest.name} onChange={e=>setContest(p=>({...p,name:e.target.value}))}/>
+                <input style={inp} value={contest.name} onChange={e=>{const u={...contest,name:e.target.value};setContest(u);if(onContestChange)onContestChange(u);}}/>
               </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                 <div>
