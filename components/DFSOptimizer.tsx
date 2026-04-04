@@ -127,6 +127,7 @@ export default function DFSOptimizer() {
   const [maxOwn, setMaxOwn] = useState(1000);
   const [locked, setLocked] = useState<Set<number>>(new Set());
   const [minExposures, setMinExposures] = useState<Record<number,number>>({});
+  const [projVariability, setProjVariability] = useState<number>(0);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [posFilter, setPos] = useState('All');
   const [search, setSearch] = useState('');
@@ -146,6 +147,7 @@ export default function DFSOptimizer() {
       if (d.avoid_opp != null) setAvoidOpp(d.avoid_opp);
       if (d.max_overlap)    setOverlap(d.max_overlap);
       if (d.selected_stacks && Array.isArray(d.selected_stacks)) setStacks(new Set(d.selected_stacks));
+      if (d.proj_variability != null) setProjVariability(d.proj_variability);
       setSettingsLoaded(true);
     }).catch(() => setSettingsLoaded(true));
   }, [token]);
@@ -159,7 +161,7 @@ export default function DFSOptimizer() {
       await fetch('/api/optimizer-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ numLineups, maxExposure: defaultMaxExp, minSalary, avoidOpp, maxOverlap, selectedStacks: Array.from(selectedStacks), mode: 'cash' }),
+        body: JSON.stringify({ numLineups, maxExposure: defaultMaxExp, minSalary, avoidOpp, maxOverlap, selectedStacks: Array.from(selectedStacks), mode: 'cash', proj_variability: projVariability }),
       });
     } catch {}
   };
@@ -190,6 +192,7 @@ export default function DFSOptimizer() {
         ruleNoBatterVsPitcher: avoidOpp,
         ruleNoSameGameSPs: true, ruleMinSalary: false,
         minExposures,
+        projVariability,
       });
       setLineups(result.map((lu:any) => lu.players));
       setSelectedLineups(new Set());
@@ -344,14 +347,17 @@ export default function DFSOptimizer() {
         <div style={card}>
           <h3 style={{fontSize:15,fontWeight:700,marginBottom:4}}>Projections</h3>
           <p style={{fontSize:12,color:'#64748b',marginBottom:16}}>Add variability to projections for more diverse lineups.</p>
-          <div style={{fontSize:13,fontWeight:600,color:'#94a3b8',marginBottom:12}}>Projection Variability (%)</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:10,marginBottom:24}}>
-            {['P','C','1B','2B','3B','SS','OF'].map(pos=>(
-              <div key={pos}>
-                <div style={{fontSize:11,color:'#64748b',textAlign:'center' as const,marginBottom:4}}>{pos}</div>
-                <input type="number" min={0} max={50} defaultValue={0} style={{...inp,textAlign:'center' as const,padding:'6px 4px',width:'100%'}}/>
-              </div>
-            ))}
+          <div style={{fontSize:13,fontWeight:600,color:'#94a3b8',marginBottom:12}}>Projection Variability</div>
+          <div style={{marginBottom:24}}>
+            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:8}}>
+              <input type="range" min={0} max={30} step={1} value={projVariability}
+                onChange={e=>setProjVariability(+e.target.value)}
+                style={{flex:1,accentColor:'#c41e3a'}}/>
+              <span style={{fontSize:14,fontWeight:700,color:'#c41e3a',minWidth:40}}>{projVariability}%</span>
+            </div>
+            <div style={{fontSize:11,color:'#475569'}}>
+              0% = use projections as-is · Higher = more random variation, more diverse lineups
+            </div>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <button style={{padding:'10px 0',borderRadius:8,border:'1px solid rgba(255,255,255,0.12)',background:'transparent',color:'#94a3b8',cursor:'pointer',fontSize:13}}>Edit Projections</button>
