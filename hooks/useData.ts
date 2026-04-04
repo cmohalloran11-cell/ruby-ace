@@ -474,7 +474,6 @@ export function useDFSOptimizer(players: any[]) {
     ruleMinSalary         = true,
     minExposures          = {} as Record<number,number>,
     projVariability       = 0,
-    existingLineups       = [] as any[],
   }) => {
     // Pool: proj_fpts > 0, IPL (in probable lineup) filter, not excluded
     const excludedSet = new Set(excluded);
@@ -501,18 +500,7 @@ export function useDFSOptimizer(players: any[]) {
 
     const exposureCounts: Record<number, number> = {};
     const lineups: any[] = [];
-    const usedHashes = new Set<string>(
-      existingLineups.map((lu:any) => (lu.players || lu).map((p:any) => p.id).sort().join(','))
-    );
-    const existingExposureCounts: Record<string,number> = {};
-    for (const lu of existingLineups) {
-      for (const p of (lu.players || lu)) {
-        const k = p.id ?? p.player_name;
-        existingExposureCounts[k] = (existingExposureCounts[k]||0) + 1;
-      }
-    }
-    // Merge existing exposure into counts
-    Object.assign(exposureCounts, existingExposureCounts);
+    const usedHashes = new Set<string>();
     let seed = 0;
 
     for (let attempt = 0; attempt < numLineups * 1000 && lineups.length < numLineups; attempt++) {
