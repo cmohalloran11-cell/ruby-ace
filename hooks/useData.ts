@@ -428,15 +428,18 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
     }
 
     if (!filled) {
-      // Retry without budget constraint — just find any valid player
-      for (const p of scored) {
+      // Retry: sort by salary asc to find cheapest valid player that fits
+      const bySalary = [...scored].sort((a,b) => (a.salary||0) - (b.salary||0));
+      for (const p of bySalary) {
         if (p.position !== slotPos) continue;
         if (usedIds.has(p.id)) continue;
         if (salUsed + (p.salary||0) > cap) continue;
-        // Still enforce team cap on retry
         if (slotPos !== 'SP') {
           const teamCount = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
           if (teamCount >= maxPerTeam) continue;
+        }
+        if (ruleNoBatterVsPitcher && p.position !== 'SP') {
+          if (roster.some(r => r.position === 'SP' && spOppMap[r.team] === p.team)) continue;
         }
         roster.push(p); usedIds.add(p.id); salUsed += p.salary||0;
         filled = true;
