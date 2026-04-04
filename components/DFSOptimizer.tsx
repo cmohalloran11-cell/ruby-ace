@@ -126,6 +126,7 @@ export default function DFSOptimizer() {
   const [maxSalary] = useState(50000);
   const [maxOwn, setMaxOwn] = useState(1000);
   const [locked, setLocked] = useState<Set<number>>(new Set());
+  const [minExposures, setMinExposures] = useState<Record<number,number>>({});
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [posFilter, setPos] = useState('All');
   const [search, setSearch] = useState('');
@@ -188,6 +189,7 @@ export default function DFSOptimizer() {
         maxOwnership: maxOwn < 1000 ? maxOwn : 0,
         ruleNoBatterVsPitcher: avoidOpp,
         ruleNoSameGameSPs: true, ruleMinSalary: false,
+        minExposures,
       });
       setLineups(result.map((lu:any) => lu.players));
       setSelectedLineups(new Set());
@@ -240,27 +242,36 @@ export default function DFSOptimizer() {
       {tab==='minexp' && (
         <div style={card}>
           <h3 style={{fontSize:15,fontWeight:700,marginBottom:4}}>Minimum Exposure</h3>
-          <p style={{fontSize:12,color:'#64748b',marginBottom:16}}>Lock a player into a slot or set minimum exposure.</p>
-          <div style={{display:'grid',gridTemplateColumns:'50px 1fr 130px',gap:10,alignItems:'center',marginBottom:8}}>
-            <span style={{fontSize:11,color:'#64748b',fontWeight:600}}>Slot</span>
-            <span style={{fontSize:11,color:'#64748b',fontWeight:600}}>Player</span>
-            <span style={{fontSize:11,color:'#64748b',fontWeight:600,textAlign:'center' as const}}>Min Exposure</span>
+          <p style={{fontSize:12,color:'#64748b',marginBottom:16}}>Set a minimum % a player must appear across all lineups. Lock forces 100%.</p>
+          {Object.keys(minExposures).length > 0 && (
+            <button onClick={()=>setMinExposures({})} style={{marginBottom:12,padding:'4px 12px',borderRadius:6,border:'1px solid rgba(239,68,68,0.3)',background:'rgba(239,68,68,0.08)',color:'#ef4444',fontSize:12,cursor:'pointer'}}>
+              Clear All Min Exposures
+            </button>
+          )}
+          <div style={{maxHeight:400,overflowY:'auto' as const}}>
+            {players.filter((p:any)=>(p.proj_fpts||0)>0).sort((a:any,b:any)=>b.proj_fpts-a.proj_fpts).slice(0,40).map((p:any)=>{
+              const minPct = minExposures[p.id] ?? 0;
+              return (
+                <div key={p.id} style={{display:'grid',gridTemplateColumns:'1fr 160px',gap:12,alignItems:'center',marginBottom:10,padding:'8px 0',borderBottom:'1px solid rgba(255,255,255,0.04)'}}>
+                  <div>
+                    <span style={{fontSize:13,fontWeight:600}}>{p.player_name}</span>
+                    <span style={{fontSize:11,color:'#475569',marginLeft:6}}>{p.team} · {p.position} · ${(p.salary/1000).toFixed(1)}k · {p.proj_fpts?.toFixed(1)}pts</span>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <input type="range" min={0} max={100} step={5} value={minPct}
+                      onChange={e=>{
+                        const v = +e.target.value;
+                        setMinExposures(prev => v===0 ? Object.fromEntries(Object.entries(prev).filter(([k])=>+k!==p.id)) : {...prev,[p.id]:v});
+                      }}
+                      style={{flex:1,accentColor:'#c41e3a'}}/>
+                    <span style={{fontSize:12,color:minPct>0?'#c41e3a':'#334155',fontWeight:700,width:36,textAlign:'right' as const}}>
+                      {minPct}%
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          {SLOTS.map((slot,i)=>(
-            <div key={i} style={{display:'grid',gridTemplateColumns:'50px 1fr 130px',gap:10,alignItems:'center',marginBottom:8}}>
-              <span style={{fontSize:13,fontWeight:800,color:'#c41e3a',letterSpacing:1}}>{slot}</span>
-              <select style={{...inp,width:'100%'}} defaultValue="">
-                <option value="">Optimize</option>
-                {players.filter((p:any)=>slot==='P'?p.position==='SP':p.position===slot)
-                  .sort((a:any,b:any)=>b.proj_fpts-a.proj_fpts).slice(0,30)
-                  .map((p:any)=><option key={p.id} value={p.id}>{p.player_name} ({p.team})</option>)}
-              </select>
-              <div style={{display:'flex',alignItems:'center',gap:6}}>
-                <input type="range" min={0} max={100} defaultValue={100} style={{flex:1,accentColor:'#c41e3a'}}/>
-                <span style={{fontSize:12,color:'#c41e3a',fontWeight:700,width:38,textAlign:'right' as const}}>100%</span>
-              </div>
-            </div>
-          ))}
         </div>
       )}
 
