@@ -111,6 +111,8 @@ export default function DFSOptimizer() {
   const [view, setView] = useState<'lineups'|'playerExp'|'teamExp'|'contestsim'>('lineups');
   const [showResults, setShowResults] = useState(false);
   const [selectedLineups, setSelectedLineups] = useState<Set<number>>(new Set());
+  const [simResults, setSimResults] = useState<any[]>([]);
+  const [simContest, setSimContest] = useState<any>(null);
   const [warn, setWarn] = useState('');
   const [debug, setDebug] = useState('');
 
@@ -605,7 +607,7 @@ export default function DFSOptimizer() {
                 </tbody>
               </table>
             )}
-            {view==='contestsim' && <ContestSim lineups={lineups}/>}
+            {view==='contestsim' && <ContestSim lineups={lineups} savedResults={simResults} savedContest={simContest} onResultsChange={setSimResults} onContestChange={setSimContest}/>}
             {view==='teamExp' && (
               <table style={{width:'100%',borderCollapse:'collapse' as const,fontSize:13}}>
                 <thead>
