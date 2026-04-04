@@ -532,7 +532,19 @@ export default function DFSOptimizer() {
               ))}
             </div>
             {view==='lineups' && (
-              <div style={{overflowX:'auto' as const}}>
+              <div style={{display:'flex',flexDirection:'column' as const,gap:0}}>
+                {/* Top scrollbar mirror */}
+                <div style={{overflowX:'auto' as const, overflowY:'hidden'}} 
+                  ref={(el)=>{
+                    if(!el) return;
+                    const table = el.nextElementSibling as HTMLElement;
+                    if(!table) return;
+                    el.onscroll = ()=>{ table.scrollLeft = el.scrollLeft; };
+                    table.onscroll = ()=>{ el.scrollLeft = table.scrollLeft; };
+                  }}>
+                  <div style={{height:1, width:'max-content', minWidth:'100%'}}/>
+                </div>
+                <div style={{overflowX:'auto' as const}}>
                 <table style={{width:'100%',borderCollapse:'collapse' as const,fontSize:12}}>
                   <thead>
                     <tr style={{borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
@@ -584,6 +596,7 @@ export default function DFSOptimizer() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
             {view==='playerExp' && (
