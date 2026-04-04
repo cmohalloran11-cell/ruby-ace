@@ -317,13 +317,13 @@ export default function ContestSim({ lineups, savedResults, savedContest, onResu
               <span style={{ fontSize:12, color:'#475569' }}>
                 {simSelected.size > 0 ? `${simSelected.size} selected` : 'Click rows to select lineups'}
               </span>
-              <button onClick={()=>setSimSelected(simSelected.size===results.length?new Set():new Set(results.map((_:any,i:number)=>i)))} style={{
+              <button onClick={()=>setSimSelected(simSelected.size===results.length?new Set():new Set(results.map((r:any)=>r.lineupIndex)))} style={{
                 padding:'3px 12px', borderRadius:6, border:'1px solid rgba(255,255,255,0.12)',
                 background:'rgba(255,255,255,0.05)', color:'#94a3b8', cursor:'pointer', fontSize:12,
               }}>{simSelected.size===results.length?'Deselect All':'Select All'}</button>
               {simSelected.size > 0 && (
                 <button onClick={()=>{
-                  if (onSelectLineups) onSelectLineups(Array.from(simSelected).map(i=>results[i].lineupIndex));
+                  if (onSelectLineups) onSelectLineups(Array.from(simSelected) as number[]);
                   setSimSelected(new Set());
                 }} style={{
                   padding:'3px 12px', borderRadius:6, border:'1px solid rgba(196,30,58,0.4)',
@@ -359,7 +359,7 @@ export default function ContestSim({ lineups, savedResults, savedContest, onResu
                   <tr style={{ borderBottom:'1px solid rgba(255,255,255,0.1)', position:'sticky' as const, top:0, background:'#13131f' }}>
                     <th style={{width:32,padding:'6px 8px'}}>
                         <input type="checkbox" checked={simSelected.size===sorted.length && sorted.length>0}
-                          onChange={()=>setSimSelected(simSelected.size===sorted.length?new Set():new Set(sorted.map((_:any,i:number)=>i)))}
+                          onChange={()=>setSimSelected(simSelected.size===sorted.length?new Set():new Set(sorted.map((r:any)=>r.lineupIndex)))}
                           style={{accentColor:'#c41e3a',cursor:'pointer'}}/>
                       </th>
                     <SortTh label="#" k="lineupIndex"/>
@@ -380,8 +380,8 @@ export default function ContestSim({ lineups, savedResults, savedContest, onResu
                     <tr key={r.lineupIndex}
                       style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', cursor:'pointer',
                         background: simSelected.has(i)?'rgba(196,30,58,0.1)':selectedResult===r.lineupIndex?'rgba(196,30,58,0.04)':i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
-                      <td style={{ padding:'6px 8px' }} onClick={e=>{e.stopPropagation();const s=new Set(simSelected);s.has(i)?s.delete(i):s.add(i);setSimSelected(s);}}>
-                        <input type="checkbox" checked={simSelected.has(i)} onChange={()=>{}} style={{accentColor:'#c41e3a',cursor:'pointer'}}/>
+                      <td style={{ padding:'6px 8px' }} onClick={e=>{e.stopPropagation();const s=new Set(simSelected);s.has(r.lineupIndex)?s.delete(r.lineupIndex):s.add(r.lineupIndex);setSimSelected(s);}}>
+                        <input type="checkbox" checked={simSelected.has(r.lineupIndex)} onChange={()=>{}} style={{accentColor:'#c41e3a',cursor:'pointer'}}/>
                       </td>
                       <td style={{ padding:'6px 10px', color:'#475569', cursor:'pointer' }} onClick={()=>setSelectedResult(selectedResult===r.lineupIndex?null:r.lineupIndex)}>#{r.lineupIndex+1}</td>
                       <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.projScore.toFixed(1)}</td>
