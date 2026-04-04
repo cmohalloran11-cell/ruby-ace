@@ -169,38 +169,57 @@ export default function DFSOptimizer() {
   const generate = () => {
     setGen(true); setWarn(''); setGenProgress(0);
     saveSettings();
-    setTimeout(() => {
-      // If all (or most) combos selected, treat as "any stack" — rotate through but don't hard-enforce
-      const allCombos = Object.keys(COMBO_MAP);
-      const allSelected = allCombos.every(k => selectedStacks.has(k));
-      const activeCombos = selectedStacks.size === 0 || allSelected
-        ? [[]]  // no hard stack enforcement — let implied runs scoring handle it
-        : Array.from(selectedStacks).map(k => COMBO_MAP[k]||[]);
-      // Collect debug info before optimizing
-      const dbgPositions = [...new Set(players.map((p:any) => p.position))].sort().join(', ');
-      const dbgSalary = players.filter((p:any) => (p.salary||0) > 0).length;
-      const dbgFpts = players.filter((p:any) => (p.proj_fpts||0) > 0).length;
-      const dbgSPs = players.filter((p:any) => p.position === 'SP').length;
-      setDebug(`Pool: ${players.length} total | ${dbgSPs} SPs | salary>0: ${dbgSalary} | fpts>0: ${dbgFpts} | positions: ${dbgPositions}`);
 
-      const result = optimize({
-        locked: Array.from(locked), excluded: Array.from(excluded),
-        numLineups, stackCombos: activeCombos, mode: 'cash',
-        minUnique: maxOverlap < 9 ? 10 - maxOverlap : 0,
-        minSalary, maxExposure: defaultMaxExp,
-        maxOwnership: maxOwn < 1000 ? maxOwn : 0,
-        ruleNoBatterVsPitcher: avoidOpp,
-        ruleNoSameGameSPs: true, ruleMinSalary: false,
-        minExposures,
-        projVariability,
-      });
-      setLineups(result.map((lu:any) => lu.players));
-      setSelectedLineups(new Set());
-      setGen(false); setShowResults(result.length > 0);
-      if (!result.length) setWarn('Could not build any valid lineups. Check your player pool has all positions with salary > 0.');
-      else if (result.length < numLineups) setWarn(`Built ${result.length} of ${numLineups} lineups.`);
-      else setWarn('');
-    }, 50);
+    const allCombos = Object.keys(COMBO_MAP);
+    const allSelected = allCombos.every(k => selectedStacks.has(k));
+    const activeCombos = selectedStacks.size === 0 || allSelected
+      ? [[]]
+      : Array.from(selectedStacks).map(k => COMBO_MAP[k]||[]);
+
+    const dbgPositions = [...new Set(players.map((p:any) => p.position))].sort().join(', ');
+    const dbgSalary = players.filter((p:any) => (p.salary||0) > 0).length;
+    const dbgFpts = players.filter((p:any) => (p.proj_fpts||0) > 0).length;
+    const dbgSPs = players.filter((p:any) => p.position === 'SP').length;
+    setDebug(`Pool: ${players.length} total | ${dbgSPs} SPs | salary>0: ${dbgSalary} | fpts>0: ${dbgFpts} | positions: ${dbgPositions}`);
+
+    // Run in chunks to keep UI responsive
+    const CHUNK = Math.min(50, numLineups);
+    let built: any[] = [];
+
+    const runChunk = () => {
+      try {
+        const remaining = numLineups - built.length;
+        if (remaining <= 0) {
+          setLineups(built.map((lu:any) => lu.players));
+          setSelectedLineups(new Set());
+          setGen(false); setShowResults(built.length > 0);
+          if (!built.length) setWarn('Could not build any valid lineups. Check your player pool has all positions with salary > 0.');
+          else if (built.length < numLineups) setWarn(`Built ${built.length} of ${numLineups} lineups.`);
+          else setWarn('');
+          return;
+        }
+        const chunkResult = optimize({
+          locked: Array.from(locked), excluded: Array.from(excluded),
+          numLineups: Math.min(CHUNK, remaining),
+          stackCombos: activeCombos, mode: 'cash',
+          minUnique: maxOverlap < 9 ? 10 - maxOverlap : 0,
+          minSalary, maxExposure: defaultMaxExp,
+          maxOwnership: maxOwn < 1000 ? maxOwn : 0,
+          ruleNoBatterVsPitcher: avoidOpp,
+          ruleNoSameGameSPs: true, ruleMinSalary: false,
+          minExposures, projVariability,
+          existingLineups: built,
+        });
+        built = [...built, ...chunkResult];
+        setGenProgress(Math.round(built.length / numLineups * 100));
+        setTimeout(runChunk, 0);
+      } catch(e) {
+        setGen(false);
+        setWarn('Optimizer error — try reducing lineups or clearing constraints.');
+      }
+    };
+
+    setTimeout(runChunk, 50);
   };
 
   const playerExp = useMemo(() => {
