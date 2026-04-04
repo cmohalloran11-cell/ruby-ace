@@ -30,12 +30,13 @@ function parseContestCSV(text: string): Partial<ContestData> {
   return data;
 }
 
-export default function ContestSim({ lineups, savedResults, savedContest, onResultsChange, onContestChange }: {
+export default function ContestSim({ lineups, savedResults, savedContest, onResultsChange, onContestChange, onSelectLineups }: {
   lineups: any[][];
   savedResults?: any[];
   savedContest?: any;
   onResultsChange?: (r: any[]) => void;
   onContestChange?: (c: any) => void;
+  onSelectLineups?: (indices: number[]) => void;
 }) {
   const { token } = useAuth() as any;
   const [contest, setContest] = useState<ContestData>(savedContest || {
@@ -51,6 +52,7 @@ export default function ContestSim({ lineups, savedResults, savedContest, onResu
   const [sortKey, setSortKey] = useState<string>('cashRate');
   const [sortDir, setSortDir] = useState<1|-1>(-1);
   const [selectedResult, setSelectedResult] = useState<number|null>(null);
+  const [simSelected, setSimSelected] = useState<Set<number>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
   const uploadContest = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,12 +80,28 @@ export default function ContestSim({ lineups, savedResults, savedContest, onResu
       return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
     }
 
+    // Build prize tiers for this contest (typical GPP structure)
+    function getPrize(rank: number): number {
+      const pct = rank / entrants;
+      if (rank === 1) return prizePool * 0.15;
+      if (rank <= 2) return prizePool * 0.09;
+      if (rank <= 3) return prizePool * 0.06;
+      if (rank <= 5) return prizePool * 0.04;
+      if (rank <= 10) return prizePool * 0.025;
+      if (rank <= 25) return prizePool * 0.015;
+      if (rank <= 50) return prizePool * 0.01;
+      if (rank <= 100) return prizePool * 0.006;
+      if (pct <= 0.05) return prizePool * 0.003;
+      if (pct <= 0.10) return prizePool * 0.002;
+      if (pct <= 0.18) return entryFee * 2; // min cash = 2x entry
+      return 0;
+    }
+
     function simOne(lineup: any[], li: number) {
       const myProj = lineup.reduce((s: number, p: any) => s + (p.proj_fpts || 0), 0);
       const myStdDev = myProj * 0.28;
       let cashCount = 0, top1 = 0, top10 = 0, top25 = 0, totalPrize = 0;
       const scores: number[] = [];
-      const cashPay = prizePool * 0.18 / Math.max(1, Math.floor(entrants * 0.18));
 
       for (let sim = 0; sim < N_SIM; sim++) {
         const myScore = Math.max(0, myProj + randn() * myStdDev);
@@ -96,7 +114,8 @@ export default function ContestSim({ lineups, savedResults, savedContest, onResu
         }
         const rank = Math.round(beatenBy / sample * entrants) + 1;
         const pct = rank / entrants;
-        if (pct <= 0.18) { cashCount++; totalPrize += cashPay; }
+        const prize = getPrize(rank);
+        if (prize > 0) { cashCount++; totalPrize += prize; }
         if (rank <= 1) top1++;
         if (pct <= 0.10) top10++;
         if (pct <= 0.25) top25++;
@@ -292,6 +311,28 @@ export default function ContestSim({ lineups, savedResults, savedContest, onResu
 
       {tab === 'results' && (
         <div>
+          {/* Selection toolbar */}
+          {results.length > 0 && (
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, flexWrap:'wrap' as const }}>
+              <span style={{ fontSize:12, color:'#475569' }}>
+                {simSelected.size > 0 ? `${simSelected.size} selected` : 'Click rows to select lineups'}
+              </span>
+              <button onClick={()=>setSimSelected(simSelected.size===results.length?new Set():new Set(results.map((_:any,i:number)=>i)))} style={{
+                padding:'3px 12px', borderRadius:6, border:'1px solid rgba(255,255,255,0.12)',
+                background:'rgba(255,255,255,0.05)', color:'#94a3b8', cursor:'pointer', fontSize:12,
+              }}>{simSelected.size===results.length?'Deselect All':'Select All'}</button>
+              {simSelected.size > 0 && (
+                <button onClick={()=>{
+                  if (onSelectLineups) onSelectLineups(Array.from(simSelected).map(i=>results[i].lineupIndex));
+                  setSimSelected(new Set());
+                }} style={{
+                  padding:'3px 12px', borderRadius:6, border:'1px solid rgba(196,30,58,0.4)',
+                  background:'rgba(196,30,58,0.1)', color:'#f06070', cursor:'pointer', fontSize:12, fontWeight:600,
+                }}>✓ Use {simSelected.size} Lineups</button>
+              )}
+            </div>
+          )}
+
           {/* Summary */}
           {results.length > 0 && (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:16 }}>
@@ -316,6 +357,11 @@ export default function ContestSim({ lineups, savedResults, savedContest, onResu
               <table style={{ width:'100%', borderCollapse:'collapse' as const, fontSize:12 }}>
                 <thead>
                   <tr style={{ borderBottom:'1px solid rgba(255,255,255,0.1)', position:'sticky' as const, top:0, background:'#13131f' }}>
+                    <th style={{width:32,padding:'6px 8px'}}>
+                        <input type="checkbox" checked={simSelected.size===sorted.length && sorted.length>0}
+                          onChange={()=>setSimSelected(simSelected.size===sorted.length?new Set():new Set(sorted.map((_:any,i:number)=>i)))}
+                          style={{accentColor:'#c41e3a',cursor:'pointer'}}/>
+                      </th>
                     <SortTh label="#" k="lineupIndex"/>
                     <SortTh label="Proj" k="projScore"/>
                     <SortTh label="Cash%" k="cashRate"/>
@@ -332,10 +378,12 @@ export default function ContestSim({ lineups, savedResults, savedContest, onResu
                 <tbody>
                   {sorted.map((r, i) => (
                     <tr key={r.lineupIndex}
-                      onClick={()=>setSelectedResult(selectedResult===r.lineupIndex?null:r.lineupIndex)}
                       style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', cursor:'pointer',
-                        background: selectedResult===r.lineupIndex?'rgba(196,30,58,0.08)':i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
-                      <td style={{ padding:'6px 10px', color:'#475569' }}>#{r.lineupIndex+1}</td>
+                        background: simSelected.has(i)?'rgba(196,30,58,0.1)':selectedResult===r.lineupIndex?'rgba(196,30,58,0.04)':i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
+                      <td style={{ padding:'6px 8px' }} onClick={e=>{e.stopPropagation();const s=new Set(simSelected);s.has(i)?s.delete(i):s.add(i);setSimSelected(s);}}>
+                        <input type="checkbox" checked={simSelected.has(i)} onChange={()=>{}} style={{accentColor:'#c41e3a',cursor:'pointer'}}/>
+                      </td>
+                      <td style={{ padding:'6px 10px', color:'#475569', cursor:'pointer' }} onClick={()=>setSelectedResult(selectedResult===r.lineupIndex?null:r.lineupIndex)}>#{r.lineupIndex+1}</td>
                       <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.projScore.toFixed(1)}</td>
                       <td style={{ padding:'6px 10px', color:r.cashRate>=20?'#22c55e':r.cashRate>=15?'#f59e0b':'#94a3b8', fontWeight:700 }}>{r.cashRate.toFixed(1)}%</td>
                       <td style={{ padding:'6px 10px', color:'#60a5fa' }}>{r.top10Rate.toFixed(1)}%</td>
