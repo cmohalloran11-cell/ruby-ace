@@ -446,8 +446,8 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
         if ((exposureCounts[expKey] || 0) >= maxAllowed) continue;
       }
 
-      // Skip excluded teams (hit their max lineup count)
-      if (slotPos !== 'SP' && opts.teamExcluded?.includes(p.team)) continue;
+      // Skip excluded teams (hit their max lineup count) — applies to both SPs and hitters
+      if (opts.teamExcluded?.includes(p.team)) continue;
 
       // Max hitters per team (DK rule: max 5 batters from one team)
       if (slotPos !== 'SP') {
@@ -553,7 +553,8 @@ export function useDFSOptimizer(players: any[]) {
       // Pre-check team max — exclude teams that have hit their lineup cap
       const teamExcluded = new Set<string>();
       for (const [team, maxLu] of Object.entries(teamMaxLineups)) {
-        const teamCount = lineups.filter(lu => lu.players.some((p:any) => p.team === team && p.position !== 'SP')).length;
+        if (maxLu === 0) { teamExcluded.add(team); continue; }
+        const teamCount = lineups.filter(lu => lu.players.some((p:any) => p.team === team)).length;
         if (teamCount >= maxLu) teamExcluded.add(team);
       }
 
