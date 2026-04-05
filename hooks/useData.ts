@@ -315,9 +315,7 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
   const {
     locked, excluded, cap, minSal = 49000, stackTeam, stackCombo,
     mode, noisePts, maxExposure, totalLineups, exposureCounts,
-    maxPerTeam = 5,
-    ruleNoBatterVsPitcher, ruleNoSameGameSPs,
-    rngSeed,
+    maxPerTeam = 5, ruleNoBatterVsPitcher, ruleNoSameGameSPs, rngSeed,
     teamMaxLineups = {} as Record<string,number>,
     teamMinExp = {} as Record<string,number>,
   } = opts;
@@ -327,14 +325,13 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
     ? Math.max(1, Math.floor((maxExposure / 100) * totalLineups))
     : Infinity;
 
+  // Build opp map from SPs
   const spOppMap: Record<string, string> = {};
   for (const p of pool) {
     if (p.position === 'SP' && p.opp) spOppMap[p.team] = p.opp;
   }
 
-  const useCombo = !!(stackCombo && stackCombo.length > 0 && stackCombo[0] > 1);
-
-  // Score and shuffle pool
+  // Score pool with noise
   const scored = pool
     .filter(p => !excluded.has(p.id))
     .map(p => ({
@@ -347,144 +344,127 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
   const usedIds = new Set<number>();
   let salUsed = 0;
 
-  // Add locked players first
+  // Locked players first
   for (const p of scored) {
     if (locked.includes(p.id) && !usedIds.has(p.id)) {
       roster.push(p); usedIds.add(p.id); salUsed += p.salary || 0;
     }
   }
 
-  // Fill each slot
-  const FILL_ORDER = ['SP','SP','C','1B','2B','3B','SS','OF','OF','OF'];
+  const SLOTS = ['SP','SP','C','1B','2B','3B','SS','OF','OF','OF'];
 
-  for (let slotIdx = 0; slotIdx < FILL_ORDER.length; slotIdx++) {
-    const slotPos = FILL_ORDER[slotIdx];
-    const alreadyFilled = roster.filter(p => p.position === slotPos).length;
-    const slotsOfThisType = FILL_ORDER.filter(s => s === slotPos).length;
-    if (alreadyFilled >= slotsOfThisType) continue;
-
-    // How many of this position still needed
-    const currentOfType = roster.filter(p => p.position === slotPos).length;
-    const neededOfType = slotsOfThisType - currentOfType;
-    if (neededOfType <= 0) continue;
-
-    // Remaining slots after this one (for budget lookahead)
-    const remainingSlots = FILL_ORDER.slice(slotIdx + 1);
-    const remainingPositions = remainingSlots.filter(s => 
-      !roster.filter(p => p.position === s).length || 
-      remainingSlots.filter(rs => rs === s).length > roster.filter(p => p.position === s).length
-    );
-    // Min cost for remaining slots = count of each remaining position × cheapest available
-    let minRemaining = 0;
-    const tempFilled: Record<string, number> = {};
-    for (const rs of remainingSlots) {
-      tempFilled[rs] = (tempFilled[rs] || 0) + 1;
+  // Helper: can this player be placed legally?
+  function isLegal(p: any, pos: string): boolean {
+    if (p.position !== pos) return false;
+    if (usedIds.has(p.id)) return false;
+    if (opts.teamExcluded?.includes(p.team)) return false;
+    if (pos !== 'SP') {
+      const tc = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
+      if (tc >= maxPerTeam) return false;
     }
-    for (const [pos, cnt] of Object.entries(tempFilled)) {
-      const cheapest = scored
-        .filter(p => p.position === pos && !usedIds.has(p.id))
-        .sort((a,b) => (a.salary||0) - (b.salary||0));
-      for (let k = 0; k < cnt && k < cheapest.length; k++) {
-        minRemaining += cheapest[k].salary || 0;
-      }
+    if (ruleNoBatterVsPitcher && pos !== 'SP') {
+      if (roster.some(r => r.position === 'SP' && spOppMap[r.team] === p.team)) return false;
     }
+    if (ruleNoBatterVsPitcher && pos === 'SP') {
+      if (roster.some(r => r.position !== 'SP' && spOppMap[p.team] === r.team)) return false;
+    }
+    if (ruleNoSameGameSPs && pos === 'SP') {
+      if (roster.some(r => r.position === 'SP' && (spOppMap[r.team] === p.team || spOppMap[p.team] === r.team))) return false;
+    }
+    const expKey = p.id ?? p.player_name ?? p.name;
+    if (maxExposure < 100 && !locked.includes(p.id)) {
+      if ((exposureCounts[expKey] || 0) >= maxAllowed) return false;
+    }
+    return true;
+  }
 
-    let filled = false;
+  // Helper: cheapest possible salary for remaining unfilled slots
+  function minSalRemaining(afterIds: Set<number>, slots: string[]): number {
+    const cnt: Record<string,number> = {};
+    for (const s of slots) cnt[s] = (cnt[s]||0)+1;
+    const used2 = new Set(afterIds);
+    let total = 0;
+    for (const [pos, n] of Object.entries(cnt)) {
+      const avail = scored.filter(p => p.position===pos && !used2.has(p.id)).sort((a,b)=>(a.salary||0)-(b.salary||0));
+      for (let i=0; i<n && i<avail.length; i++) { total += avail[i].salary||0; used2.add(avail[i].id); }
+    }
+    return total;
+  }
+
+  // Helper: max possible salary for remaining unfilled slots
+  function maxSalRemaining(afterIds: Set<number>, slots: string[]): number {
+    const cnt: Record<string,number> = {};
+    for (const s of slots) cnt[s] = (cnt[s]||0)+1;
+    const used2 = new Set(afterIds);
+    let total = 0;
+    for (const [pos, n] of Object.entries(cnt)) {
+      const avail = scored.filter(p => p.position===pos && !used2.has(p.id)).sort((a,b)=>(b.salary||0)-(a.salary||0));
+      for (let i=0; i<n && i<avail.length; i++) { total += avail[i].salary||0; used2.add(avail[i].id); }
+    }
+    return total;
+  }
+
+  for (let si = 0; si < SLOTS.length; si++) {
+    const pos = SLOTS[si];
+    const filled = roster.filter(p => p.position===pos).length;
+    const needed = SLOTS.filter(s=>s===pos).length;
+    if (filled >= needed) continue;
+
+    const remaining = SLOTS.slice(si+1);
+    const afterThis = new Set<number>(usedIds);
+
+    let placed = false;
+
     for (const p of scored) {
-      if (p.position !== slotPos) continue;
-      if (usedIds.has(p.id)) continue;
-
+      if (!isLegal(p, pos)) continue;
       const pSal = p.salary || 0;
+      const afterSal = salUsed + pSal;
 
-      // Hard cap check with real minimum for remaining slots
-      if (salUsed + pSal + minRemaining > cap) continue;
+      // Must stay under cap including cheapest possible remaining
+      const minRem = minSalRemaining(new Set([...Array.from(usedIds), p.id]), remaining);
+      if (afterSal + minRem > cap) continue;
 
-      // Salary floor: skip cheap players that make it impossible to reach minSal
-      if (minSal > 0 && remainingSlots.length > 0) {
-        const usedForFloor = new Set([...Array.from(usedIds), p.id]);
-        const remCntFloor: Record<string,number> = {};
-        for (const s of remainingSlots) remCntFloor[s] = (remCntFloor[s]||0)+1;
-        let maxRem = 0;
-        for (const [pos2, cnt2] of Object.entries(remCntFloor)) {
-          const expensive = scored
-            .filter((pp:any) => pp.position === pos2 && !usedForFloor.has(pp.id))
-            .sort((a: any, b: any) => (b.salary||0) - (a.salary||0));
-          for (let k2 = 0; k2 < cnt2 && k2 < expensive.length; k2++) {
-            maxRem += expensive[k2].salary || 0;
-            usedForFloor.add(expensive[k2].id);
-          }
-        }
-        if (salUsed + pSal + maxRem < minSal) continue;
+      // Must be able to reach minSal with most expensive remaining
+      if (remaining.length > 0) {
+        const maxRem = maxSalRemaining(new Set([...Array.from(usedIds), p.id]), remaining);
+        if (afterSal + maxRem < minSal) continue;
+      } else {
+        // Last slot — must itself bring total to minSal
+        if (afterSal < minSal) continue;
       }
 
-      // No batter vs pitcher rule
-      if (ruleNoBatterVsPitcher && p.position !== 'SP') {
-        if (roster.some(r => r.position === 'SP' && spOppMap[r.team] === p.team)) continue;
-      }
-      if (ruleNoBatterVsPitcher && p.position === 'SP') {
-        if (roster.some(r => r.position !== 'SP' && spOppMap[p.team] === r.team)) continue;
-      }
-
-      // No same-game SPs
-      if (ruleNoSameGameSPs && p.position === 'SP') {
-        if (roster.some(r => r.position === 'SP' &&
-          (spOppMap[r.team] === p.team || spOppMap[p.team] === r.team))) continue;
-      }
-
-      // Exposure — use id or player_name as key
-      const expKey = p.id ?? p.player_name ?? p.name;
-      if (maxExposure < 100 && !locked.includes(p.id)) {
-        if ((exposureCounts[expKey] || 0) >= maxAllowed) continue;
-      }
-
-      // Skip excluded teams (hit their max lineup count) — applies to both SPs and hitters
-      if (opts.teamExcluded?.includes(p.team)) continue;
-
-      // Max hitters per team (DK rule: max 5 batters from one team)
-      if (slotPos !== 'SP') {
-        const teamCount = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
-        if (teamCount >= maxPerTeam) continue;
-      }
-
-      roster.push(p);
-      usedIds.add(p.id);
-      salUsed += pSal;
-      filled = true;
+      roster.push(p); usedIds.add(p.id); salUsed += pSal;
+      placed = true;
       break;
     }
 
-    if (!filled) {
-      // Retry: pick highest salary player that still fits under cap
-      // Prioritize players that help reach minSal
-      const byBestSalary = [...scored].sort((a,b) => (b.salary||0) - (a.salary||0));
-      for (const p of byBestSalary) {
-        if (p.position !== slotPos) continue;
-        if (usedIds.has(p.id)) continue;
-        const pSal2 = p.salary||0;
-        if (salUsed + pSal2 + minRemaining > cap) continue;
-        if (slotPos !== 'SP') {
-          const teamCount = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
-          if (teamCount >= maxPerTeam) continue;
-        }
+    if (!placed) {
+      // Fallback: relax exposure only, keep all other rules, pick best scoring that fits salary window
+      for (const p of scored) {
+        if (p.position !== pos) continue;
+        if (usedIds.has(p.id)) return null;
         if (opts.teamExcluded?.includes(p.team)) continue;
-        if (ruleNoBatterVsPitcher && p.position !== 'SP') {
-          if (roster.some(r => r.position === 'SP' && spOppMap[r.team] === p.team)) continue;
+        if (pos !== 'SP') {
+          if (roster.filter(r=>r.team===p.team&&r.position!=='SP').length >= maxPerTeam) continue;
         }
-        roster.push(p); usedIds.add(p.id); salUsed += pSal2;
-        filled = true;
+        const pSal = p.salary||0;
+        const minRem = minSalRemaining(new Set([...Array.from(usedIds), p.id]), remaining);
+        if (salUsed + pSal + minRem > cap) continue;
+        if (remaining.length > 0) {
+          const maxRem = maxSalRemaining(new Set([...Array.from(usedIds), p.id]), remaining);
+          if (salUsed + pSal + maxRem < minSal) continue;
+        } else if (salUsed + pSal < minSal) continue;
+        roster.push(p); usedIds.add(p.id); salUsed += pSal;
+        placed = true;
         break;
       }
     }
 
-    if (!filled) {
-      if (rngSeed <= 3) console.warn('[buildOne] FAILED slot', slotPos, 'sal=', salUsed, 'cap=', cap);
-      return null;
-    }
+    if (!placed) return null;
   }
 
   if (roster.length !== 10) return null;
-  const total = roster.reduce((s, p) => s + (p.salary || 0), 0);
-  if (total > cap) return null;
+  if (salUsed > cap || salUsed < minSal) return null;
   return roster;
 }
 
