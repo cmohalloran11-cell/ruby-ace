@@ -431,6 +431,12 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
         if ((exposureCounts[expKey] || 0) >= maxAllowed) continue;
       }
 
+      // Team max lineups check
+      if (p.position !== 'SP' && teamMaxLineups[p.team] !== undefined) {
+        const teamLineupCount = lineups.filter(lu => lu.players.some((lp:any) => lp.team === p.team && lp.position !== 'SP')).length;
+        if (teamLineupCount >= teamMaxLineups[p.team]) continue;
+      }
+
       // Max hitters per team (DK rule: max 5 batters from one team)
       if (slotPos !== 'SP') {
         const teamCount = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
@@ -445,12 +451,13 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
     }
 
     if (!filled) {
-      // Retry: sort by salary asc to find cheapest valid player that fits
-      const bySalary = [...scored].sort((a,b) => (a.salary||0) - (b.salary||0));
-      for (const p of bySalary) {
+      // Retry: try highest salary first to maximize salary usage, then fall back to cheapest
+      const byBestSalary = [...scored].sort((a,b) => (b.salary||0) - (a.salary||0));
+      for (const p of byBestSalary) {
         if (p.position !== slotPos) continue;
         if (usedIds.has(p.id)) continue;
-        if (salUsed + (p.salary||0) > cap) continue;
+        const pSal2 = p.salary||0;
+        if (salUsed + pSal2 > cap) continue;
         if (slotPos !== 'SP') {
           const teamCount = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
           if (teamCount >= maxPerTeam) continue;
@@ -458,7 +465,7 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
         if (ruleNoBatterVsPitcher && p.position !== 'SP') {
           if (roster.some(r => r.position === 'SP' && spOppMap[r.team] === p.team)) continue;
         }
-        roster.push(p); usedIds.add(p.id); salUsed += p.salary||0;
+        roster.push(p); usedIds.add(p.id); salUsed += pSal2;
         filled = true;
         break;
       }
@@ -495,6 +502,8 @@ export function useDFSOptimizer(players: any[]) {
     ruleMinSalary         = true,
     minExposures          = {} as Record<number,number>,
     projVariability       = 0,
+    teamMaxLineups        = {} as Record<string,number>,
+    teamMinExp            = {} as Record<string,number>,
   }) => {
     // Pool: proj_fpts > 0, IPL (in probable lineup) filter, not excluded
     const excludedSet = new Set(excluded);
@@ -565,7 +574,35 @@ export function useDFSOptimizer(players: any[]) {
       });
     }
 
-    // minExposures post-processing removed for stability
+    // Enforce team minimum exposure
+    if (Object.keys(teamMinExp).length > 0 && lineups.length > 0) {
+      for (const [team, minPct] of Object.entries(teamMinExp)) {
+        const minCount = Math.ceil((minPct / 100) * lineups.length);
+        const currentCount = lineups.filter(lu => lu.players.some((p:any) => p.team === team && p.position !== 'SP')).length;
+        if (currentCount < minCount) {
+          // Find lineups without this team's batters and add them
+          const teamPlayers = pool.filter(p => p.team === team && p.position !== 'SP').sort((a,b) => (b.proj_fpts||0)-(a.proj_fpts||0));
+          let added = 0;
+          for (const lu of lineups) {
+            if (added >= minCount - currentCount) break;
+            const hasTeam = lu.players.some((p:any) => p.team === team && p.position !== 'SP');
+            if (hasTeam) continue;
+            // Swap lowest-scoring non-SP non-locked batter
+            const swappable = lu.players.filter((p:any) => p.position !== 'SP' && !locked.includes(p.id)).sort((a:any,b:any) => (a.proj_fpts||0)-(b.proj_fpts||0));
+            for (const candidate of teamPlayers) {
+              if (lu.players.some((p:any) => p.id === candidate.id)) continue;
+              const worst = swappable[0];
+              if (!worst) continue;
+              const newSal = lu.totalSalary - (worst.salary||0) + (candidate.salary||0);
+              if (newSal > DK_CAP) continue;
+              lu.players = lu.players.map((p:any) => p.id===worst.id ? candidate : p);
+              lu.totalSalary = newSal;
+              added++; break;
+            }
+          }
+        }
+      }
+    }
 
     console.log('[Optimizer] Built', lineups.length, '/', numLineups, 'lineups');
     return lineups;
