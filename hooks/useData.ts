@@ -399,28 +399,19 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
       // Hard cap check with real minimum for remaining slots
       if (salUsed + pSal + minRemaining > cap) continue;
 
-      // Salary floor: if adding this player makes it impossible to reach minSal, skip
-      if (minSal > 0) {
-        // Count remaining unfilled slots
-        const filledAfter = [...roster, p];
-        const stillNeeded = FILL_ORDER.filter((pos, i) => {
-          const filledOfType = filledAfter.filter(r => r.position === pos).length;
-          const totalOfType = FILL_ORDER.filter(s => s === pos).length;
-          return filledOfType < totalOfType;
-        });
-        // Max salary we could add for remaining slots
-        const usedNow = new Set([...Array.from(usedIds), p.id]);
+      // Salary floor: skip cheap players that make it impossible to reach minSal
+      if (minSal > 0 && remainingSlots.length > 0) {
+        const usedForFloor = new Set([...Array.from(usedIds), p.id]);
+        const remCntFloor: Record<string,number> = {};
+        for (const s of remainingSlots) remCntFloor[s] = (remCntFloor[s]||0)+1;
         let maxRem = 0;
-        const tempCnt: Record<string,number> = {};
-        for (const s of stillNeeded) tempCnt[s] = (tempCnt[s]||0)+1;
-        const usedForEst = new Set(usedNow);
-        for (const [pos2, cnt2] of Object.entries(tempCnt)) {
+        for (const [pos2, cnt2] of Object.entries(remCntFloor)) {
           const expensive = scored
-            .filter(pp => pp.position === pos2 && !usedForEst.has(pp.id))
+            .filter((pp:any) => pp.position === pos2 && !usedForFloor.has(pp.id))
             .sort((a: any, b: any) => (b.salary||0) - (a.salary||0));
           for (let k2 = 0; k2 < cnt2 && k2 < expensive.length; k2++) {
             maxRem += expensive[k2].salary || 0;
-            usedForEst.add(expensive[k2].id);
+            usedForFloor.add(expensive[k2].id);
           }
         }
         if (salUsed + pSal + maxRem < minSal) continue;
@@ -463,17 +454,19 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
     }
 
     if (!filled) {
-      // Retry: try highest salary first to maximize salary usage, then fall back to cheapest
+      // Retry: pick highest salary player that still fits under cap
+      // Prioritize players that help reach minSal
       const byBestSalary = [...scored].sort((a,b) => (b.salary||0) - (a.salary||0));
       for (const p of byBestSalary) {
         if (p.position !== slotPos) continue;
         if (usedIds.has(p.id)) continue;
         const pSal2 = p.salary||0;
-        if (salUsed + pSal2 > cap) continue;
+        if (salUsed + pSal2 + minRemaining > cap) continue;
         if (slotPos !== 'SP') {
           const teamCount = roster.filter(r => r.team === p.team && r.position !== 'SP').length;
           if (teamCount >= maxPerTeam) continue;
         }
+        if (opts.teamExcluded?.includes(p.team)) continue;
         if (ruleNoBatterVsPitcher && p.position !== 'SP') {
           if (roster.some(r => r.position === 'SP' && spOppMap[r.team] === p.team)) continue;
         }
