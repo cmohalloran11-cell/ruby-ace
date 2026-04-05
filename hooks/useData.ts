@@ -399,21 +399,31 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
       // Hard cap check with real minimum for remaining slots
       if (salUsed + pSal + minRemaining > cap) continue;
 
-      // Salary floor: estimate max possible salary for remaining slots
-      // If adding this cheap player makes it impossible to reach minSal, skip it
-      if (minSal > 0 && remainingSlots.length > 0) {
-        const tempFilled2: Record<string, number> = {};
-        for (const rs of remainingSlots) tempFilled2[rs] = (tempFilled2[rs]||0)+1;
-        let maxRemaining = 0;
-        for (const [pos2, cnt2] of Object.entries(tempFilled2)) {
+      // Salary floor: if adding this player makes it impossible to reach minSal, skip
+      if (minSal > 0) {
+        // Count remaining unfilled slots
+        const filledAfter = [...roster, p];
+        const stillNeeded = FILL_ORDER.filter((pos, i) => {
+          const filledOfType = filledAfter.filter(r => r.position === pos).length;
+          const totalOfType = FILL_ORDER.filter(s => s === pos).length;
+          return filledOfType < totalOfType;
+        });
+        // Max salary we could add for remaining slots
+        const usedNow = new Set([...Array.from(usedIds), p.id]);
+        let maxRem = 0;
+        const tempCnt: Record<string,number> = {};
+        for (const s of stillNeeded) tempCnt[s] = (tempCnt[s]||0)+1;
+        const usedForEst = new Set(usedNow);
+        for (const [pos2, cnt2] of Object.entries(tempCnt)) {
           const expensive = scored
-            .filter(pp => pp.position === pos2 && !usedIds.has(pp.id) && pp.id !== p.id)
-            .sort((a,b) => (b.salary||0) - (a.salary||0));
+            .filter(pp => pp.position === pos2 && !usedForEst.has(pp.id))
+            .sort((a: any, b: any) => (b.salary||0) - (a.salary||0));
           for (let k2 = 0; k2 < cnt2 && k2 < expensive.length; k2++) {
-            maxRemaining += expensive[k2].salary || 0;
+            maxRem += expensive[k2].salary || 0;
+            usedForEst.add(expensive[k2].id);
           }
         }
-        if (salUsed + pSal + maxRemaining < minSal) continue;
+        if (salUsed + pSal + maxRem < minSal) continue;
       }
 
       // No batter vs pitcher rule
