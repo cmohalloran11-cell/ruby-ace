@@ -310,7 +310,7 @@ interface BuildOptions {
 
 function buildOne(pool: any[], opts: BuildOptions): any[] | null {
   const {
-    locked, excluded, cap, stackTeam, stackCombo,
+    locked, excluded, cap, minSal = 49000, stackTeam, stackCombo,
     mode, noisePts, maxExposure, totalLineups, exposureCounts,
     maxPerTeam = 5,
     ruleNoBatterVsPitcher, ruleNoSameGameSPs,
@@ -393,6 +393,23 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
 
       // Hard cap check with real minimum for remaining slots
       if (salUsed + pSal + minRemaining > cap) continue;
+
+      // Salary floor: estimate max possible salary for remaining slots
+      // If adding this cheap player makes it impossible to reach minSal, skip it
+      if (minSal > 0 && remainingSlots.length > 0) {
+        const tempFilled2: Record<string, number> = {};
+        for (const rs of remainingSlots) tempFilled2[rs] = (tempFilled2[rs]||0)+1;
+        let maxRemaining = 0;
+        for (const [pos2, cnt2] of Object.entries(tempFilled2)) {
+          const expensive = scored
+            .filter(pp => pp.position === pos2 && !usedIds.has(pp.id) && pp.id !== p.id)
+            .sort((a,b) => (b.salary||0) - (a.salary||0));
+          for (let k2 = 0; k2 < cnt2 && k2 < expensive.length; k2++) {
+            maxRemaining += expensive[k2].salary || 0;
+          }
+        }
+        if (salUsed + pSal + maxRemaining < minSal) continue;
+      }
 
       // No batter vs pitcher rule
       if (ruleNoBatterVsPitcher && p.position !== 'SP') {
