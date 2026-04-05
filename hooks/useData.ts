@@ -306,6 +306,8 @@ interface BuildOptions {
   ruleNoSameGameSPs:     boolean;
   ruleMinSalary:         boolean;
   rngSeed:         number;
+  teamMaxLineups:  Record<string,number>;
+  teamMinExp:      Record<string,number>;
 }
 
 function buildOne(pool: any[], opts: BuildOptions): any[] | null {
@@ -315,6 +317,8 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
     maxPerTeam = 5,
     ruleNoBatterVsPitcher, ruleNoSameGameSPs,
     rngSeed,
+    teamMaxLineups = {} as Record<string,number>,
+    teamMinExp = {} as Record<string,number>,
   } = opts;
 
   const rng = mkRng(rngSeed);
@@ -542,7 +546,7 @@ export function useDFSOptimizer(players: any[]) {
         locked, excluded: excludedSet, cap: DK_CAP, minSal: minSalary,
         stackTeam, stackCombo, mode, noisePts,
         maxExposure, totalLineups: numLineups, exposureCounts,
-        oppMap, maxPerTeam: 5,
+        oppMap, maxPerTeam: 5, teamMaxLineups, teamMinExp,
         ruleNoBatterVsPitcher, ruleNoSameGameSPs, ruleMinSalary,
         rngSeed: seed,
       });
