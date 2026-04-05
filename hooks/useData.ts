@@ -308,6 +308,7 @@ interface BuildOptions {
   rngSeed:         number;
   teamMaxLineups:  Record<string,number>;
   teamMinExp:      Record<string,number>;
+  teamExcluded:    string[];
 }
 
 function buildOne(pool: any[], opts: BuildOptions): any[] | null {
@@ -435,11 +436,8 @@ function buildOne(pool: any[], opts: BuildOptions): any[] | null {
         if ((exposureCounts[expKey] || 0) >= maxAllowed) continue;
       }
 
-      // Team max lineups check
-      if (p.position !== 'SP' && teamMaxLineups[p.team] !== undefined) {
-        const teamLineupCount = lineups.filter(lu => lu.players.some((lp:any) => lp.team === p.team && lp.position !== 'SP')).length;
-        if (teamLineupCount >= teamMaxLineups[p.team]) continue;
-      }
+      // Skip excluded teams (hit their max lineup count)
+      if (slotPos !== 'SP' && opts.teamExcluded?.includes(p.team)) continue;
 
       // Max hitters per team (DK rule: max 5 batters from one team)
       if (slotPos !== 'SP') {
@@ -542,11 +540,19 @@ export function useDFSOptimizer(players: any[]) {
       const noisePts = (projVariability > 0 ? projVariability * 0.5 : 2) + (lineups.length / Math.max(numLineups, 1)) * 8;
       const stackCombo = stackCombos[lineups.length % stackCombos.length] || [];
 
+      // Pre-check team max — exclude teams that have hit their lineup cap
+      const teamExcluded = new Set<string>();
+      for (const [team, maxLu] of Object.entries(teamMaxLineups)) {
+        const teamCount = lineups.filter(lu => lu.players.some((p:any) => p.team === team && p.position !== 'SP')).length;
+        if (teamCount >= maxLu) teamExcluded.add(team);
+      }
+
       const roster = buildOne(pool, {
         locked, excluded: excludedSet, cap: DK_CAP, minSal: minSalary,
         stackTeam, stackCombo, mode, noisePts,
         maxExposure, totalLineups: numLineups, exposureCounts,
         oppMap, maxPerTeam: 5, teamMaxLineups, teamMinExp,
+        teamExcluded: Array.from(teamExcluded),
         ruleNoBatterVsPitcher, ruleNoSameGameSPs, ruleMinSalary,
         rngSeed: seed,
       });
