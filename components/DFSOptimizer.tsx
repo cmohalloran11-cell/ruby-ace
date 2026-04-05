@@ -127,6 +127,8 @@ export default function DFSOptimizer() {
   const [maxOwn, setMaxOwn] = useState(1000);
   const [locked, setLocked] = useState<Set<number>>(new Set());
   const [minExposures, setMinExposures] = useState<Record<number,number>>({});
+  const [teamMaxLineups, setTeamMaxLineups] = useState<Record<string,number>>({});
+  const [teamMinExp, setTeamMinExp] = useState<Record<string,number>>({});
   const [projVariability, setProjVariability] = useState<number>(0);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [posFilter, setPos] = useState('All');
@@ -192,7 +194,7 @@ export default function DFSOptimizer() {
           maxOwnership: maxOwn < 1000 ? maxOwn : 0,
           ruleNoBatterVsPitcher: avoidOpp,
           ruleNoSameGameSPs: true, ruleMinSalary: false,
-          minExposures, projVariability,
+          minExposures, projVariability, teamMaxLineups, teamMinExp,
         });
         setLineups(result.map((lu:any) => lu.players));
         setSelectedLineups(new Set());
@@ -251,12 +253,50 @@ export default function DFSOptimizer() {
         <div style={card}>
           <h3 style={{fontSize:15,fontWeight:700,marginBottom:4}}>Minimum Exposure</h3>
           <p style={{fontSize:12,color:'#64748b',marginBottom:16}}>Set a minimum % a player must appear across all lineups. Lock forces 100%.</p>
-          {Object.keys(minExposures).length > 0 && (
-            <button onClick={()=>setMinExposures({})} style={{marginBottom:12,padding:'4px 12px',borderRadius:6,border:'1px solid rgba(239,68,68,0.3)',background:'rgba(239,68,68,0.08)',color:'#ef4444',fontSize:12,cursor:'pointer'}}>
-              Clear All Min Exposures
+          {(Object.keys(minExposures).length > 0 || Object.keys(teamMaxLineups).length > 0) && (
+            <button onClick={()=>{setMinExposures({}); setTeamMaxLineups({}); setTeamMinExp({});}} style={{marginBottom:12,padding:'4px 12px',borderRadius:6,border:'1px solid rgba(239,68,68,0.3)',background:'rgba(239,68,68,0.08)',color:'#ef4444',fontSize:12,cursor:'pointer'}}>
+              Clear All
             </button>
           )}
-          <div style={{maxHeight:400,overflowY:'auto' as const}}>
+
+          {/* Team controls */}
+          {(() => {
+            const teams = [...new Set(players.filter((p:any)=>p.position!=='SP').map((p:any)=>p.team))].sort();
+            if (!teams.length) return null;
+            return (
+              <div style={{marginBottom:16,padding:14,background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.06)',borderRadius:8}}>
+                <div style={{fontSize:13,fontWeight:700,color:'#94a3b8',marginBottom:10}}>Team Controls</div>
+                <div style={{display:'grid',gridTemplateColumns:'80px 1fr 1fr',gap:8,marginBottom:6}}>
+                  <span style={{fontSize:11,color:'#475569'}}>Team</span>
+                  <span style={{fontSize:11,color:'#475569'}}>Max Lineups</span>
+                  <span style={{fontSize:11,color:'#475569'}}>Min Exp %</span>
+                </div>
+                {teams.map((team:string)=>{
+                  const maxLu = teamMaxLineups[team] ?? numLineups;
+                  const minPct = teamMinExp[team] ?? 0;
+                  const changed = teamMaxLineups[team] !== undefined || teamMinExp[team] !== undefined;
+                  return (
+                    <div key={team} style={{display:'grid',gridTemplateColumns:'80px 1fr 1fr',gap:8,alignItems:'center',marginBottom:6,opacity:changed?1:0.6}}>
+                      <span style={{fontSize:13,fontWeight:700,color:changed?'#c41e3a':'#64748b'}}>{team}</span>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <input type="number" min={0} max={numLineups} value={maxLu}
+                          onChange={e=>{const v=Math.min(numLineups,Math.max(0,+e.target.value));setTeamMaxLineups(prev=>v===numLineups?Object.fromEntries(Object.entries(prev).filter(([k])=>k!==team)):{...prev,[team]:v});}}
+                          style={{...inp,width:70,padding:'4px 8px',fontSize:12,textAlign:'center' as const}}/>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <input type="range" min={0} max={100} step={5} value={minPct}
+                          onChange={e=>{const v=+e.target.value;setTeamMinExp(prev=>v===0?Object.fromEntries(Object.entries(prev).filter(([k])=>k!==team)):{...prev,[team]:v});}}
+                          style={{flex:1,accentColor:'#c41e3a'}}/>
+                        <span style={{fontSize:11,color:minPct>0?'#c41e3a':'#334155',fontWeight:700,width:32}}>{minPct}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          <div style={{maxHeight:320,overflowY:'auto' as const}}>
             {players.filter((p:any)=>(p.proj_fpts||0)>0).sort((a:any,b:any)=>b.proj_fpts-a.proj_fpts).slice(0,40).map((p:any)=>{
               const minPct = minExposures[p.id] ?? 0;
               return (
